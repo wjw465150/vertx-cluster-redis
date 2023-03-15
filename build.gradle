@@ -1,0 +1,68 @@
+plugins {
+  id 'java'
+  id 'java-library'
+}
+
+group = "io.code.experiment.vertx"
+version = "1.0"
+
+description = """Vert.x Redis Cluster Manager"""
+
+sourceCompatibility = '1.8'
+targetCompatibility = '1.8'
+[compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
+
+ext {
+  vertx = [version : "4.4.0"]
+  redisson = [version : "3.11.2"]
+  logback = [version : "1.2.3"]
+  junitJupiter = [version : "5.7.0"]
+}
+
+repositories {
+  //mavenLocal()
+  maven { url "https://maven.aliyun.com/nexus/content/groups/public/" }  //优先使用阿里的镜像
+  mavenCentral()
+  maven {
+    url = uri('https://oss.sonatype.org/content/repositories/snapshots')
+  }
+  maven {
+    url = uri('https://repo.maven.apache.org/maven2/')
+  }
+}
+
+dependencies {
+    implementation platform("io.vertx:vertx-stack-depchain:${vertx.version}")  //Vert.x Stack Depchain,集中了Vert.x的依赖版本管理,这样后面在导入Vert.x模块时就不必再填写版本号了!
+
+    api "io.vertx:vertx-core"
+    api "io.vertx:vertx-web"
+    api("org.redisson:redisson:${redisson.version}") {
+      exclude group: 'io.netty'
+      exclude group: 'org.slf4j'
+    }
+    api 'org.slf4j:slf4j-api:1.7.32'
+    
+    testImplementation 'org.slf4j:slf4j-api:1.7.32'
+    testImplementation 'ch.qos.logback:logback-core:1.2.10'
+    testImplementation 'ch.qos.logback:logback-classic:1.2.10'
+
+    testImplementation platform("io.vertx:vertx-stack-depchain:${vertx.version}")  //Vert.x Stack Depchain,集中了Vert.x的依赖版本管理,这样后面在导入Vert.x模块时就不必再填写版本号了!
+    testImplementation("io.vertx:vertx-core") {
+      artifact {
+        classifier = 'tests'
+      }
+    }
+    testImplementation("io.vertx:vertx-web") {
+      artifact {
+        classifier = 'tests'
+      }
+    }
+
+    testImplementation "io.vertx:vertx-junit5"
+    testImplementation "org.junit.jupiter:junit-jupiter:${junitJupiter.version}"    
+}
+
+
+test {
+  useJUnitPlatform()
+}
