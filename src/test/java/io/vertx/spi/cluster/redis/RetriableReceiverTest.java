@@ -28,7 +28,7 @@ import org.redisson.config.Config;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
 import io.vertx.test.core.AsyncTestBase;
@@ -91,7 +91,7 @@ public class RetriableReceiverTest extends AsyncTestBase {
     // Receiver
     Vertx.clusteredVertx(options1, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr1.getNodeID());
+      assertNotNull(mgr1.getNodeId());
 
       res.result().eventBus().<String> consumer(address, message -> {
         assertNotNull(message);
@@ -114,13 +114,13 @@ public class RetriableReceiverTest extends AsyncTestBase {
     await(10, TimeUnit.MINUTES); // XXX
 
     log.debug("close...");
-    Future<Void> f1 = Future.future();
+    Promise<Void> f1 = Promise.promise();
     vertx1.get().close(f1);
 
     //
     log.debug("finish...");
     CountDownLatch finish = new CountDownLatch(1);
-    f1.setHandler(ar -> {
+    f1.future().onComplete(ar -> {
       finish.countDown();
     });
 

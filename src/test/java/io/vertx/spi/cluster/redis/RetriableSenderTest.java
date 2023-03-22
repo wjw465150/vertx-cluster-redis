@@ -31,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
 import io.vertx.test.core.AsyncTestBase;
@@ -87,7 +88,7 @@ public class RetriableSenderTest extends AsyncTestBase {
     // Producer
     Vertx.clusteredVertx(options2, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr2.getNodeID());
+      assertNotNull(mgr2.getNodeId());
       vertx2.set(res.result());
     });
 
@@ -137,13 +138,13 @@ public class RetriableSenderTest extends AsyncTestBase {
     await(10, TimeUnit.MINUTES); // XXX
 
     log.debug("close...");
-    Future<Void> f2 = Future.future();
+    Promise<Void> f2 = Promise.promise();
     vertx2.get().close(f2);
 
     //
     log.debug("finish...");
     CountDownLatch finish = new CountDownLatch(1);
-    f2.setHandler(ar -> {
+    f2.future().onComplete(ar -> {
       finish.countDown();
     });
 

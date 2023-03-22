@@ -33,6 +33,7 @@ import org.slf4j.LoggerFactory;
 
 import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
 import io.vertx.core.shareddata.AsyncMap;
@@ -83,12 +84,12 @@ public class StressTest extends AsyncTestBase {
     RedisClusterManager mgr2 = new RedisClusterManager(redisson2, clusterHost2 + "_" + clusterPort2);
 
     VertxOptions options1 = new VertxOptions().setClusterManager(mgr1);
-    options1.getEventBusOptions().setClustered(true).setHost(clusterHost1).setPort(clusterPort1);
+    options1.getEventBusOptions().setHost(clusterHost1).setPort(clusterPort1);
     options1.setInternalBlockingPoolSize(VertxOptions.DEFAULT_INTERNAL_BLOCKING_POOL_SIZE * 2)
         .setWorkerPoolSize(VertxOptions.DEFAULT_WORKER_POOL_SIZE * 2);
 
     VertxOptions options2 = new VertxOptions().setClusterManager(mgr2);
-    options2.getEventBusOptions().setClustered(true).setHost(clusterHost2).setPort(clusterPort2);
+    options2.getEventBusOptions().setHost(clusterHost2).setPort(clusterPort2);
     options2.setInternalBlockingPoolSize(VertxOptions.DEFAULT_INTERNAL_BLOCKING_POOL_SIZE * 2)
         .setWorkerPoolSize(VertxOptions.DEFAULT_WORKER_POOL_SIZE * 2);
 
@@ -102,7 +103,7 @@ public class StressTest extends AsyncTestBase {
     // Receiver
     Vertx.clusteredVertx(options1, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr1.getNodeID());
+      assertNotNull(mgr1.getNodeId());
 
       res.result().eventBus().<String> consumer(address, message -> {
         assertNotNull(message);
@@ -125,7 +126,7 @@ public class StressTest extends AsyncTestBase {
     // Producer
     Vertx.clusteredVertx(options2, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr2.getNodeID());
+      assertNotNull(mgr2.getNodeId());
       vertx2.set(res.result());
     });
 
@@ -149,15 +150,15 @@ public class StressTest extends AsyncTestBase {
     await(5, TimeUnit.MINUTES); // XXX
 
     log.debug("close...");
-    Future<Void> f1 = Future.future();
-    Future<Void> f2 = Future.future();
+    Promise<Void> f1 = Promise.promise();
+    Promise<Void> f2 = Promise.promise();
     vertx1.get().close(f1);
     vertx2.get().close(f2);
 
     //
     log.debug("finish...");
     CountDownLatch finish = new CountDownLatch(1);
-    CompositeFuture.all(f1, f2).setHandler(ar -> {
+    CompositeFuture.all(f1.future(), f2.future()).onComplete(ar -> {
       finish.countDown();
     });
 
@@ -194,22 +195,22 @@ public class StressTest extends AsyncTestBase {
     RedisClusterManager mgr4 = new RedisClusterManager(redisson4, clusterHost4 + "_" + clusterPort4);
 
     VertxOptions options1 = new VertxOptions().setClusterManager(mgr1);
-    options1.getEventBusOptions().setClustered(true).setHost(clusterHost1).setPort(clusterPort1);
+    options1.getEventBusOptions().setHost(clusterHost1).setPort(clusterPort1);
     options1.setInternalBlockingPoolSize(VertxOptions.DEFAULT_INTERNAL_BLOCKING_POOL_SIZE * 2)
         .setWorkerPoolSize(VertxOptions.DEFAULT_WORKER_POOL_SIZE * 2);
 
     VertxOptions options2 = new VertxOptions().setClusterManager(mgr2);
-    options2.getEventBusOptions().setClustered(true).setHost(clusterHost2).setPort(clusterPort2);
+    options2.getEventBusOptions().setHost(clusterHost2).setPort(clusterPort2);
     options2.setInternalBlockingPoolSize(VertxOptions.DEFAULT_INTERNAL_BLOCKING_POOL_SIZE * 2)
         .setWorkerPoolSize(VertxOptions.DEFAULT_WORKER_POOL_SIZE * 2);
 
     VertxOptions options3 = new VertxOptions().setClusterManager(mgr3);
-    options3.getEventBusOptions().setClustered(true).setHost(clusterHost3).setPort(clusterPort3);
+    options3.getEventBusOptions().setHost(clusterHost3).setPort(clusterPort3);
     options3.setInternalBlockingPoolSize(VertxOptions.DEFAULT_INTERNAL_BLOCKING_POOL_SIZE * 2)
         .setWorkerPoolSize(VertxOptions.DEFAULT_WORKER_POOL_SIZE * 2);
 
     VertxOptions options4 = new VertxOptions().setClusterManager(mgr4);
-    options4.getEventBusOptions().setClustered(true).setHost(clusterHost4).setPort(clusterPort4);
+    options4.getEventBusOptions().setHost(clusterHost4).setPort(clusterPort4);
     options4.setInternalBlockingPoolSize(VertxOptions.DEFAULT_INTERNAL_BLOCKING_POOL_SIZE * 2)
         .setWorkerPoolSize(VertxOptions.DEFAULT_WORKER_POOL_SIZE * 2);
 
@@ -225,7 +226,7 @@ public class StressTest extends AsyncTestBase {
     // Receiver
     Vertx.clusteredVertx(options1, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr1.getNodeID());
+      assertNotNull(mgr1.getNodeId());
 
       AtomicInteger localCounter = new AtomicInteger(0);
       res.result().eventBus().<String> consumer(address, message -> {
@@ -248,7 +249,7 @@ public class StressTest extends AsyncTestBase {
     // Receiver
     Vertx.clusteredVertx(options2, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr2.getNodeID());
+      assertNotNull(mgr2.getNodeId());
       AtomicInteger localCounter = new AtomicInteger(0);
       res.result().eventBus().<String> consumer(address, message -> {
         assertNotNull(message);
@@ -270,7 +271,7 @@ public class StressTest extends AsyncTestBase {
     // Receiver
     Vertx.clusteredVertx(options3, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr3.getNodeID());
+      assertNotNull(mgr3.getNodeId());
       AtomicInteger localCounter = new AtomicInteger(0);
       res.result().eventBus().<String> consumer(address, message -> {
         assertNotNull(message);
@@ -292,7 +293,7 @@ public class StressTest extends AsyncTestBase {
     // Producer
     Vertx.clusteredVertx(options4, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr4.getNodeID());
+      assertNotNull(mgr4.getNodeId());
       vertx4.set(res.result());
     });
 
@@ -316,10 +317,10 @@ public class StressTest extends AsyncTestBase {
     await(5, TimeUnit.MINUTES); // XXX
 
     log.debug("close...");
-    Future<Void> f1 = Future.future();
-    Future<Void> f2 = Future.future();
-    Future<Void> f3 = Future.future();
-    Future<Void> f4 = Future.future();
+    Promise<Void> f1 = Promise.promise();
+    Promise<Void> f2 = Promise.promise();
+    Promise<Void> f3 = Promise.promise();
+    Promise<Void> f4 = Promise.promise();
 
     vertx1.get().close(f1);
     vertx2.get().close(f2);
@@ -328,7 +329,7 @@ public class StressTest extends AsyncTestBase {
 
     log.debug("finish...");
     CountDownLatch finish = new CountDownLatch(1);
-    CompositeFuture.all(f1, f2, f3, f4).setHandler(ar -> {
+    CompositeFuture.all(f1.future(), f2.future(), f3.future(), f4.future()).onComplete(ar -> {
       log.debug("all closed: {}", ar.succeeded());
       finish.countDown();
     });
@@ -359,12 +360,12 @@ public class StressTest extends AsyncTestBase {
     RedisClusterManager mgr2 = new RedisClusterManager(redisson2, clusterHost2 + "_" + clusterPort2);
 
     VertxOptions options1 = new VertxOptions().setClusterManager(mgr1);
-    options1.getEventBusOptions().setClustered(true).setHost(clusterHost1).setPort(clusterPort1);
+    options1.getEventBusOptions().setHost(clusterHost1).setPort(clusterPort1);
     options1.setInternalBlockingPoolSize(VertxOptions.DEFAULT_INTERNAL_BLOCKING_POOL_SIZE * 2)
         .setWorkerPoolSize(VertxOptions.DEFAULT_WORKER_POOL_SIZE * 2);
 
     VertxOptions options2 = new VertxOptions().setClusterManager(mgr2);
-    options2.getEventBusOptions().setClustered(true).setHost(clusterHost2).setPort(clusterPort2);
+    options2.getEventBusOptions().setHost(clusterHost2).setPort(clusterPort2);
     options2.setInternalBlockingPoolSize(VertxOptions.DEFAULT_INTERNAL_BLOCKING_POOL_SIZE * 2)
         .setWorkerPoolSize(VertxOptions.DEFAULT_WORKER_POOL_SIZE * 2);
 
@@ -379,7 +380,7 @@ public class StressTest extends AsyncTestBase {
     // Receiver
     Vertx.clusteredVertx(options1, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr1.getNodeID());
+      assertNotNull(mgr1.getNodeId());
       res.result().eventBus().<String> consumer(address, message -> {
         if (counter.get() % 1000 == 0) {
           log.debug("{}, received message", counter);
@@ -400,7 +401,7 @@ public class StressTest extends AsyncTestBase {
     // Producer
     Vertx.clusteredVertx(options2, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr2.getNodeID());
+      assertNotNull(mgr2.getNodeId());
       vertx2.set(res.result());
     });
 
@@ -415,7 +416,7 @@ public class StressTest extends AsyncTestBase {
           log.debug("{}, send message", i);
           sleep("send:" + i, 10);
         }
-        vertx.eventBus().<String> send(address, "ping:" + i, ar -> {
+        vertx.eventBus().<String> request(address, "ping:" + i, ar -> {
           if (replyCountdown.get() % 1000 == 0) {
             log.debug("{}, reply message", replyCountdown);
           }
@@ -436,14 +437,14 @@ public class StressTest extends AsyncTestBase {
     await(5, TimeUnit.MINUTES); // XXX
 
     log.debug("close...");
-    Future<Void> f1 = Future.future();
-    Future<Void> f2 = Future.future();
+    Promise<Void> f1 = Promise.promise();
+    Promise<Void> f2 = Promise.promise();
     vertx1.get().close(f1);
     vertx2.get().close(f2);
 
     log.debug("finish...");
     CountDownLatch finish = new CountDownLatch(1);
-    CompositeFuture.all(f1, f2).setHandler(ar -> {
+    CompositeFuture.all(f1.future(), f2.future()).onComplete(ar -> {
       log.debug("all closed: {}", ar.succeeded());
       finish.countDown();
     });
@@ -472,12 +473,12 @@ public class StressTest extends AsyncTestBase {
     RedisClusterManager mgr2 = new RedisClusterManager(redisson2, clusterHost2 + "_" + clusterPort2);
 
     VertxOptions options1 = new VertxOptions().setClusterManager(mgr1);
-    options1.getEventBusOptions().setClustered(true).setHost(clusterHost1).setPort(clusterPort1);
+    options1.getEventBusOptions().setHost(clusterHost1).setPort(clusterPort1);
     options1.setInternalBlockingPoolSize(VertxOptions.DEFAULT_INTERNAL_BLOCKING_POOL_SIZE * 2)
         .setWorkerPoolSize(VertxOptions.DEFAULT_WORKER_POOL_SIZE * 2);
 
     VertxOptions options2 = new VertxOptions().setClusterManager(mgr2);
-    options2.getEventBusOptions().setClustered(true).setHost(clusterHost2).setPort(clusterPort2);
+    options2.getEventBusOptions().setHost(clusterHost2).setPort(clusterPort2);
     options2.setInternalBlockingPoolSize(VertxOptions.DEFAULT_INTERNAL_BLOCKING_POOL_SIZE * 2)
         .setWorkerPoolSize(VertxOptions.DEFAULT_WORKER_POOL_SIZE * 2);
 
@@ -487,7 +488,7 @@ public class StressTest extends AsyncTestBase {
     // Put
     Vertx.clusteredVertx(options1, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr1.getNodeID());
+      assertNotNull(mgr1.getNodeId());
       vertx1.set(res.result());
     });
 
@@ -497,7 +498,7 @@ public class StressTest extends AsyncTestBase {
     // Get
     Vertx.clusteredVertx(options2, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr2.getNodeID());
+      assertNotNull(mgr2.getNodeId());
       vertx2.set(res.result());
     });
 
@@ -588,14 +589,14 @@ public class StressTest extends AsyncTestBase {
     log.info("maxCount: {}, getValCounter: {}", maxCount, getValCounter);
 
     log.debug("close...");
-    Future<Void> f1 = Future.future();
-    Future<Void> f2 = Future.future();
+    Promise<Void> f1 = Promise.promise();
+    Promise<Void> f2 = Promise.promise();
     vertx1.get().close(f1);
     vertx2.get().close(f2);
 
     log.debug("finish...");
     CountDownLatch finish = new CountDownLatch(1);
-    CompositeFuture.all(f1, f2).setHandler(ar -> {
+    CompositeFuture.all(f1.future(), f2.future()).onComplete(ar -> {
       log.debug("all closed: {}", ar.succeeded());
       finish.countDown();
     });

@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 
 import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
 import io.vertx.test.core.AsyncTestBase;
@@ -104,7 +105,7 @@ public class RedisClusterManagerTest extends AsyncTestBase {
     // Receiver
     Vertx.clusteredVertx(options1, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr1.getNodeID());
+      assertNotNull(mgr1.getNodeId());
 
       res.result().eventBus().consumer(address, message -> {
         assertNotNull(message);
@@ -121,7 +122,7 @@ public class RedisClusterManagerTest extends AsyncTestBase {
     // Producer
     Vertx.clusteredVertx(options2, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr2.getNodeID());
+      assertNotNull(mgr2.getNodeId());
       vertx2.set(res.result());
       log.debug("2) send...");
       res.result().eventBus().send(address, "hello"); // send
@@ -135,15 +136,15 @@ public class RedisClusterManagerTest extends AsyncTestBase {
     await(); // XXX
 
     log.debug("close...");
-    Future<Void> f1 = Future.future();
-    Future<Void> f2 = Future.future();
+    Promise<Void> f1 = Promise.promise();
+    Promise<Void> f2 = Promise.promise();
     vertx1.get().close(f1);
     vertx2.get().close(f2);
 
     //
     log.debug("finish...");
     CountDownLatch finish = new CountDownLatch(1);
-    CompositeFuture.all(f1, f2).setHandler(ar -> {
+    CompositeFuture.all(f1.future(), f2.future()).onComplete(ar -> {
       finish.countDown();
     });
 
@@ -180,16 +181,16 @@ public class RedisClusterManagerTest extends AsyncTestBase {
     RedisClusterManager mgr4 = new RedisClusterManager(redisson4, clusterHost4 + "_" + clusterPort4);
 
     VertxOptions options1 = new VertxOptions().setClusterManager(mgr1);
-    options1.getEventBusOptions().setClustered(true).setHost(clusterHost1).setPort(clusterPort1);
+    options1.getEventBusOptions().setHost(clusterHost1).setPort(clusterPort1);
 
     VertxOptions options2 = new VertxOptions().setClusterManager(mgr2);
-    options2.getEventBusOptions().setClustered(true).setHost(clusterHost2).setPort(clusterPort2);
+    options2.getEventBusOptions().setHost(clusterHost2).setPort(clusterPort2);
 
     VertxOptions options3 = new VertxOptions().setClusterManager(mgr3);
-    options3.getEventBusOptions().setClustered(true).setHost(clusterHost3).setPort(clusterPort3);
+    options3.getEventBusOptions().setHost(clusterHost3).setPort(clusterPort3);
 
     VertxOptions options4 = new VertxOptions().setClusterManager(mgr4);
-    options4.getEventBusOptions().setClustered(true).setHost(clusterHost4).setPort(clusterPort4);
+    options4.getEventBusOptions().setHost(clusterHost4).setPort(clusterPort4);
 
     AtomicReference<Vertx> vertx1 = new AtomicReference<>();
     AtomicReference<Vertx> vertx2 = new AtomicReference<>();
@@ -202,7 +203,7 @@ public class RedisClusterManagerTest extends AsyncTestBase {
     // Receiver
     Vertx.clusteredVertx(options1, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr1.getNodeID());
+      assertNotNull(mgr1.getNodeId());
       res.result().eventBus().consumer(address, message -> {
         assertNotNull(message);
         log.debug("1) received message.body: {}", message.body());
@@ -217,7 +218,7 @@ public class RedisClusterManagerTest extends AsyncTestBase {
     // Receiver
     Vertx.clusteredVertx(options2, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr2.getNodeID());
+      assertNotNull(mgr2.getNodeId());
       res.result().eventBus().consumer(address, message -> {
         assertNotNull(message);
         log.debug("2) received message.body: {}", message.body());
@@ -232,7 +233,7 @@ public class RedisClusterManagerTest extends AsyncTestBase {
     // Receiver
     Vertx.clusteredVertx(options3, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr3.getNodeID());
+      assertNotNull(mgr3.getNodeId());
       res.result().eventBus().consumer(address, message -> {
         assertNotNull(message);
         log.debug("3) received message.body: {}", message.body());
@@ -247,7 +248,7 @@ public class RedisClusterManagerTest extends AsyncTestBase {
     // Producer
     Vertx.clusteredVertx(options4, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr4.getNodeID());
+      assertNotNull(mgr4.getNodeId());
       vertx4.set(res.result());
     });
 
@@ -261,10 +262,10 @@ public class RedisClusterManagerTest extends AsyncTestBase {
     assertWaitUntil(() -> counter.get() == 3);
 
     log.debug("close...");
-    Future<Void> f1 = Future.future();
-    Future<Void> f2 = Future.future();
-    Future<Void> f3 = Future.future();
-    Future<Void> f4 = Future.future();
+    Promise<Void> f1 = Promise.promise();
+    Promise<Void> f2 = Promise.promise();
+    Promise<Void> f3 = Promise.promise();
+    Promise<Void> f4 = Promise.promise();
 
     vertx1.get().close(f1);
     vertx2.get().close(f2);
@@ -273,7 +274,7 @@ public class RedisClusterManagerTest extends AsyncTestBase {
 
     log.debug("finish...");
     CountDownLatch finish = new CountDownLatch(1);
-    CompositeFuture.all(f1, f2, f3, f4).setHandler(ar -> {
+    CompositeFuture.all(f1.future(), f2.future(), f3.future(), f4.future()).onComplete(ar -> {
       log.debug("all closed: {}", ar.succeeded());
       finish.countDown();
     });
@@ -304,10 +305,10 @@ public class RedisClusterManagerTest extends AsyncTestBase {
     RedisClusterManager mgr2 = new RedisClusterManager(redisson2, clusterHost2 + "_" + clusterPort2);
 
     VertxOptions options1 = new VertxOptions().setClusterManager(mgr1);
-    options1.getEventBusOptions().setClustered(true).setHost(clusterHost1).setPort(clusterPort1);
+    options1.getEventBusOptions().setHost(clusterHost1).setPort(clusterPort1);
 
     VertxOptions options2 = new VertxOptions().setClusterManager(mgr2);
-    options2.getEventBusOptions().setClustered(true).setHost(clusterHost2).setPort(clusterPort2);
+    options2.getEventBusOptions().setHost(clusterHost2).setPort(clusterPort2);
 
     AtomicReference<Vertx> vertx1 = new AtomicReference<>();
     AtomicReference<Vertx> vertx2 = new AtomicReference<>();
@@ -317,7 +318,7 @@ public class RedisClusterManagerTest extends AsyncTestBase {
     // Receiver
     Vertx.clusteredVertx(options1, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr1.getNodeID());
+      assertNotNull(mgr1.getNodeId());
       res.result().eventBus().consumer(address, message -> {
         assertNotNull(message);
         log.debug("1) message.body: {}", message.body());
@@ -332,10 +333,10 @@ public class RedisClusterManagerTest extends AsyncTestBase {
     // Producer
     Vertx.clusteredVertx(options2, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr2.getNodeID());
+      assertNotNull(mgr2.getNodeId());
       vertx2.set(res.result());
       log.debug("2) send...");
-      res.result().eventBus().send(address, "ping", ar -> {
+      res.result().eventBus().request(address, "ping", ar -> {
         log.debug("2) reply status: {}", ar.succeeded());
         if (ar.succeeded()) {
           log.debug("2) reply result.body: {}", ar.result().body());
@@ -351,14 +352,14 @@ public class RedisClusterManagerTest extends AsyncTestBase {
     await(); // XXX
 
     log.debug("close...");
-    Future<Void> f1 = Future.future();
-    Future<Void> f2 = Future.future();
+    Promise<Void> f1 = Promise.promise();
+    Promise<Void> f2 = Promise.promise();
     vertx1.get().close(f1);
     vertx2.get().close(f2);
 
     log.debug("finish...");
     CountDownLatch finish = new CountDownLatch(1);
-    CompositeFuture.all(f1, f2).setHandler(ar -> {
+    CompositeFuture.all(f1.future(), f2.future()).onComplete(ar -> {
       log.debug("all closed: {}", ar.succeeded());
       finish.countDown();
     });
@@ -387,10 +388,10 @@ public class RedisClusterManagerTest extends AsyncTestBase {
     RedisClusterManager mgr2 = new RedisClusterManager(redisson2, clusterHost2 + "_" + clusterPort2);
 
     VertxOptions options1 = new VertxOptions().setClusterManager(mgr1);
-    options1.getEventBusOptions().setClustered(true).setHost(clusterHost1).setPort(clusterPort1);
+    options1.getEventBusOptions().setHost(clusterHost1).setPort(clusterPort1);
 
     VertxOptions options2 = new VertxOptions().setClusterManager(mgr2);
-    options2.getEventBusOptions().setClustered(true).setHost(clusterHost2).setPort(clusterPort2);
+    options2.getEventBusOptions().setHost(clusterHost2).setPort(clusterPort2);
 
     AtomicReference<Vertx> vertx1 = new AtomicReference<>();
     AtomicReference<Vertx> vertx2 = new AtomicReference<>();
@@ -401,7 +402,7 @@ public class RedisClusterManagerTest extends AsyncTestBase {
     // Put
     Vertx.clusteredVertx(options1, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr1.getNodeID());
+      assertNotNull(mgr1.getNodeId());
       res.result().sharedData().getClusterWideMap(mapName, ar -> {
         ar.result().put(key, "hello", v -> {
           log.debug("1) put succeeded: {}", v.succeeded());
@@ -415,7 +416,7 @@ public class RedisClusterManagerTest extends AsyncTestBase {
     // Get
     Vertx.clusteredVertx(options2, res -> {
       assertTrue(res.succeeded());
-      assertNotNull(mgr2.getNodeID());
+      assertNotNull(mgr2.getNodeId());
       vertx2.set(res.result());
       res.result().sharedData().getClusterWideMap(mapName, ar -> {
         ar.result().get(key, r -> {
@@ -432,14 +433,14 @@ public class RedisClusterManagerTest extends AsyncTestBase {
     await(); // XXX
 
     log.debug("close...");
-    Future<Void> f1 = Future.future();
-    Future<Void> f2 = Future.future();
+    Promise<Void> f1 = Promise.promise();
+    Promise<Void> f2 = Promise.promise();
     vertx1.get().close(f1);
     vertx2.get().close(f2);
 
     log.debug("finish...");
     CountDownLatch finish = new CountDownLatch(1);
-    CompositeFuture.all(f1, f2).setHandler(ar -> {
+    CompositeFuture.all(f1.future(), f2.future()).onComplete(ar -> {
       log.debug("all closed: {}", ar.succeeded());
       finish.countDown();
     });

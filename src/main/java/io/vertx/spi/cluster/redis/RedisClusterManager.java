@@ -25,6 +25,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
@@ -85,6 +86,7 @@ public class RedisClusterManager implements ClusterManager {
   private final Map<String, NodeInfo> localNodeInfo = new ConcurrentHashMap<>();
   private final Map<String, RedisLock> locks = new ConcurrentHashMap<>();
   private final Map<String, AsyncMap<?, ?>> asyncMapCache = new ConcurrentHashMap<>();  //目的是缓存已经创建的AsyncMap,为了提高速度
+  private final Map<String, Map<?, ?>> mapCache = new ConcurrentHashMap<>();  //目的是缓存已经创建的Map,为了提高速度
   
   private JsonObject conf = new JsonObject();
   
@@ -142,11 +144,6 @@ public class RedisClusterManager implements ClusterManager {
   
   @Override
   public <K, V> void getAsyncMap(String name, Promise<AsyncMap<K, V>> promise) {
-    if (name.equals(CLUSTER_MAP_NAME)) {
-      log.error(MessageFormat.format("name cannot be '{0}'", name));
-      promise.fail(new IllegalArgumentException("name cannot be '" + name + "'"));
-      return;
-    }
     vertx.executeBlocking(future -> {
       @SuppressWarnings("unchecked")
       AsyncMap<K, V> asyncMap = (AsyncMap<K, V>) asyncMapCache.computeIfAbsent(name,
@@ -158,30 +155,30 @@ public class RedisClusterManager implements ClusterManager {
   @SuppressWarnings("unchecked")
   @Override
   public <K, V> Map<K, V> getSyncMap(String name) {
-    if (name.equals(CLUSTER_MAP_NAME)) {
-      synchronized (this) {
-        if (haInfo == null) {
-          haInfo = factory.createMapHaInfo(vertx, this, redisson, name);
-        }
-        return (Map<K, V>) haInfo;
-      }
-    } else {
-      Map<K, V> map = factory.createMap(vertx, redisson, name);
-      return map;
-    }
+    Map<K, V> map = (Map<K, V>) mapCache.computeIfAbsent(name,
+        key -> factory.createMap(vertx, redisson, name));
+    return map;
   }
   
   @Override
   public void getLockWithTimeout(String name, long timeout, Promise<Lock> promise) {
-    RLock lock = redisson.getLock(name); // getFairLock ?
-    lock.tryLockAsync(timeout, TimeUnit.MILLISECONDS).whenComplete((rv, e) -> {
-      if(e != null) {
-        log.warn(MessageFormat.format("nodeId: {0}, name: {1}, timeout: {2}", nodeId, name, timeout), e);
+    RedisLock lock = locks.get(name);
+    if (lock != null) {
+      promise.complete(lock);
+      return;
+    }
+    
+    RLock rLock = redisson.getLock(name);
+    RedisLock newLock = new RedisLock(rLock);
+    rLock.tryLockAsync(timeout, TimeUnit.MILLISECONDS).whenComplete((rv, e) -> {
+      if (e != null) {
+        log.warn(MessageFormat.format("nodeId: {0}, lock name: {1}, timeout: {2}", nodeId, name, timeout), e);
         promise.fail(e);
       } else {
-        promise.complete(new RedisLock(lock));
+        locks.putIfAbsent(name, newLock);
+        promise.complete(newLock);
       }
-    }); 
+    });
   }
 
   @Override
@@ -190,7 +187,7 @@ public class RedisClusterManager implements ClusterManager {
       RAtomicLong counter = redisson.getAtomicLong(name);
       promise.complete(new RedisCounter(counter));
     } catch (Exception e) {
-      log.warn(MessageFormat.format("nodeId: {0}, name: {1}", nodeId, name), e);
+      log.warn(MessageFormat.format("nodeId: {0}, counter name: {1}", nodeId, name), e);
       promise.fail(e);
     }
   }
@@ -205,7 +202,7 @@ public class RedisClusterManager implements ClusterManager {
    */
   @Override
   public List<String> getNodes() {
-    List<String> nodes = haInfo.keySet().stream().collect(Collectors.toList());
+    List<String> nodes = clusterNodes.stream().collect(Collectors.toList());
     if (nodes.isEmpty()) {
       log.warn(MessageFormat.format("(nodes.isEmpty()), nodeId: {0}", nodeId));
     } else {
@@ -213,23 +210,60 @@ public class RedisClusterManager implements ClusterManager {
  		}
     return nodes;
   }
-
-  /**
-   * (2)
-   * </p>
-   * HAManager
-   * 
-   * @see io.vertx.core.impl.HAManager#nodeAdded
-   * @see io.vertx.core.impl.HAManager#nodeLeft
-   */
+  
   @Override
   public void nodeListener(NodeListener nodeListener) {
     this.nodeListener = nodeListener;
   }
 
   @Override
-  public void join(Promise<Void> promise) {  // TODO: ZookeeperClusterManager 的 join 方法 & addLocalNodeId()
-    if (active.compareAndSet(false, true)) {
+  public void setNodeInfo(NodeInfo nodeInfo, Promise<Void> promise) {
+    synchronized (this) {
+      this.nodeInfo = nodeInfo;
+    }
+    
+    try {
+      RBucket<NodeInfo> rBucketNodeInfo = redisson.getBucket(CLUSTER_NODES+nodeId);
+      rBucketNodeInfo.setAsync(nodeInfo).whenComplete((rv,e) -> {
+        if(e != null) {
+          log.error(MessageFormat.format("setNodeInfo nodeId: {0}", nodeId), e);
+          promise.fail(e);
+        } else {
+          localNodeInfo.put(nodeId, nodeInfo);
+          promise.complete();
+        }
+      });
+    } catch (Exception e) {
+      log.error("setNodeInfo failed.", e);
+      promise.fail(e);
+    }
+    
+  }
+
+  @Override
+  public synchronized NodeInfo getNodeInfo() {
+    return nodeInfo;
+  }
+
+  @Override
+  public void getNodeInfo(String nodeId, Promise<NodeInfo> promise) {
+    RBucket<NodeInfo> rBucketNodeInfo = redisson.getBucket(CLUSTER_NODES+nodeId);
+    rBucketNodeInfo.getAsync().whenComplete((rv,e) -> {
+      if(e != null) {
+        log.error(MessageFormat.format("getNodeInfo nodeId: {0}", nodeId), e);
+        promise.fail(e);
+      } else {
+        promise.complete(rv);
+      }
+    });
+  }
+  
+  @Override
+  public void join(Promise<Void> promise) {
+    if (!active) {
+      active = true;
+      lockReleaseExec = Executors.newCachedThreadPool(r -> new Thread(r, "vertx-redis-service-release-lock-thread"));
+     
       this.nodeId = UUID.randomUUID().toString();
       promise.complete();
     } else {
@@ -240,22 +274,35 @@ public class RedisClusterManager implements ClusterManager {
 
   @Override
   public void leave(Promise<Void> promise) {
-    if (active.compareAndSet(true, false)) {
-      promise.complete();
-    } else {
-      log.warn(MessageFormat.format("Already activated, nodeId: {0}", nodeId));
-      promise.fail(new IllegalStateException(MessageFormat.format("Already activated, nodeId: {0}", nodeId)));
+    
+    synchronized (RedisClusterManager.this) {
+      if (active) {
+        active = false;
+        joined = false;
+        lockReleaseExec.shutdown();
+        try {
+          redisson.shutdown();
+        } catch (Exception e) {
+          log.warn(MessageFormat.format("Already activated, nodeId: {0}", nodeId));
+          promise.fail(new IllegalStateException(MessageFormat.format("Already activated, nodeId: {0}", nodeId)));
+        } finally {
+          promise.complete();
+        }
+      } else {
+        promise.complete();
+      }
     }
+    
   }
 
   @Override
   public boolean isActive() {
-    return active.get();
+    return active;
   }
 
   @Override
   public String toString() {
-    return MessageFormat.format("{0} {nodeID={1}}", super.toString(), getNodeId());
+    return MessageFormat.format("Redis Cluster Manager {nodeID={0}}", getNodeId());
   }
 
   /**
@@ -405,48 +452,6 @@ public class RedisClusterManager implements ClusterManager {
     public void release() {
       lock.unlock();
     }
-  }
-
-  @Override
-  public void setNodeInfo(NodeInfo nodeInfo, Promise<Void> promise) {
-    try {
-      synchronized (this) {
-        this.nodeInfo = nodeInfo;
-      }
-      
-      localNodeInfo.put(nodeId, nodeInfo);
-      RBucket<NodeInfo> rBucketNodeInfo = redisson.getBucket(CLUSTER_NODES+nodeId);
-      rBucketNodeInfo.setAsync(nodeInfo).whenComplete((rv,e) -> {
-        if(e != null) {
-          log.error(MessageFormat.format("nodeId: {0}", nodeId), e);
-          promise.fail(e);
-        } else {
-          promise.complete();
-        }
-      });
-    } catch (Exception e) {
-      log.error("setNodeInfo failed.", e);
-      promise.fail(e);
-    }
-    
-  }
-
-  @Override
-  public NodeInfo getNodeInfo() {
-    return nodeInfo;
-  }
-
-  @Override
-  public void getNodeInfo(String nodeId, Promise<NodeInfo> promise) {
-    RBucket<NodeInfo> rBucketNodeInfo = redisson.getBucket(CLUSTER_NODES+nodeId);
-    rBucketNodeInfo.getAsync().whenComplete((rv,e) -> {
-      if(e != null) {
-        log.error(MessageFormat.format("nodeId: {0}", nodeId), e);
-        promise.fail(e);
-      } else {
-        promise.complete(rv);
-      }
-    });
   }
 
   @Override
