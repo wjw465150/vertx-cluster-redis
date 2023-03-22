@@ -56,6 +56,14 @@ public class DefaultFactory implements Factory {
     return new RedisMap<>(vertx, redisson, nameWithCodec.name, nameWithCodec.codec);
   }
 
+  @Override
+  public Map<String, String> createMapHaInfo(Vertx vertx, ClusterManager clusterManager, RedissonClient redisson,
+      String name) {
+    ExpirableMapWrapper<String, String> asyncTTL = new ExpirableMapWrapper<>(vertx, redisson, name);
+    RedisMapHaInfo haInfo = new RedisMapHaInfo(vertx, clusterManager, redisson, name, asyncTTL);
+    asyncTTL.setMap((RMapCache<String, String>) haInfo.getMapAsync());
+    return haInfo;
+  }
 
   // ===
   private enum Type {

@@ -1,0 +1,26 @@
+{
+  "http.port": 9090,
+  "logging": "config/log-dev.xml",
+  "redis": {
+    "threads": 16,
+    "nettyThreads": 32,
+    "codec": null,
+    "singleServerConfig": {
+      "idleConnectionTimeout": 10000,
+      "connectTimeout": 10000,
+      "timeout": 3000,
+      "retryAttempts": 3,
+      "retryInterval": 1500,
+      "password": null,
+      "subscriptionsPerConnection": 5,
+      "clientName": null,
+      "subscriptionConnectionMinimumIdleSize": 1,
+      "subscriptionConnectionPoolSize": 50,
+      "connectionMinimumIdleSize": 24,
+      "connectionPoolSize": 64,
+      "dnsMonitoringInterval": 5000,
+      "address": "redis://127.0.0.1:6379",
+      "database": 0
+    }
+  }
+}

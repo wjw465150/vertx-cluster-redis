@@ -32,16 +32,15 @@ import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.impl.VertxInternal;
 import io.vertx.core.shareddata.AsyncMap;
+import io.vertx.core.impl.logging.Logger;
+import io.vertx.core.impl.logging.LoggerFactory;
 
 /**
  *
  * @author <a href="mailto:leo.tu.taipei@gmail.com">Leo Tu</a>
  */
 class RedisAsyncMap<K, V> implements AsyncMap<K, V> { // extends MapTTL<K, V>
-  // private static final Logger log = LoggerFactory.getLogger(RedisAsyncMap.class);
-
-  protected final RedisStrictCommand<Long> ZSCORE_LONG = new RedisStrictCommand<Long>("ZSCORE",
-      new LongReplayConvertor()); // RedisCommands.ZSCORE
+  private static final Logger log = LoggerFactory.getLogger(RedisAsyncMap.class);
 
   protected final Vertx           vertx;
   protected final RedissonClient  redisson;
@@ -49,7 +48,6 @@ class RedisAsyncMap<K, V> implements AsyncMap<K, V> { // extends MapTTL<K, V>
   protected final String          name;
 
   public RedisAsyncMap(Vertx vertx, RedissonClient redisson, String name, Codec codec) {
-    // super(vertx, redisson, name);
     Objects.requireNonNull(redisson, "redisson");
     Objects.requireNonNull(name, "name");
     this.vertx = vertx;
@@ -66,7 +64,7 @@ class RedisAsyncMap<K, V> implements AsyncMap<K, V> { // extends MapTTL<K, V>
    */
   protected RMapCache<K, V> createRMapCache(RedissonClient redisson, String name, Codec codec) {
     if (codec == null) {
-      return redisson.getMapCache(name); // redisson.getMapCache(name, new RedisMapCodec());
+      return redisson.getMapCache(name);
     } else {
       return redisson.getMapCache(name, codec);
     }

@@ -8,8 +8,8 @@ version = "1.0"
 
 description = """Vert.x Redis Cluster Manager"""
 
-sourceCompatibility = '1.8'
-targetCompatibility = '1.8'
+sourceCompatibility = '11'
+targetCompatibility = '11'
 [compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
 
 ext {

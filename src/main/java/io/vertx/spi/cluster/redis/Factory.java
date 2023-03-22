@@ -38,12 +38,10 @@ public interface Factory {
 
   <K, V> Map<K, V> createMap(Vertx vertx, RedissonClient redisson, String name);
 
+  Map<String, String> createMapHaInfo(Vertx vertx, ClusterManager clusterManager, RedissonClient redisson, String name);
+  
   interface NodeAttachListener {
     void attachListener(NodeListener nodeListener);
-  }
-
-  interface PendingMessageProcessor {
-    void run();
   }
 
   interface ExpirableAsync<K> {
