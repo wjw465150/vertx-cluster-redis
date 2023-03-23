@@ -21,6 +21,9 @@ import org.redisson.api.map.event.EntryEvent;
 import org.redisson.api.map.event.EntryRemovedListener;
 import org.redisson.api.map.event.EntryUpdatedListener;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+
 import io.vertx.core.impl.logging.Logger;
 import io.vertx.core.impl.logging.LoggerFactory;
 import io.vertx.core.spi.cluster.NodeSelector;
@@ -32,7 +35,7 @@ public class SubsMapHelper implements EntryCreatedListener<String, RegistrationI
 
   private final RedissonClient redisson;
 
-  private final Throttling                throttling;
+  private final Throttling throttling;
   /*
    * 用RMapCache是因为它有各种Entry Listener,而RMultimapCache没有
    * 但是又要实现RMultimapCache的多value,怎么办呢? 那就再用一个RSet来实现!
@@ -40,9 +43,10 @@ public class SubsMapHelper implements EntryCreatedListener<String, RegistrationI
    * RSet<RegistrationInfo> 里存放的是特定事件地址的订阅者集合.
    * RMapCache[event address -> set address] -> RSet<RegistrationInfo> 
    */
-  private final RMapCache<String, String> map;
-  private final NodeSelector              nodeSelector;
-  private final int                       listenerId;
+  private final RMapCache<String, String>             map;
+  private final Cache<String, RSet<RegistrationInfo>> rsetCache;
+  private final NodeSelector                          nodeSelector;
+  private final int                                   listenerId;
 
   private final ConcurrentMap<String, Set<RegistrationInfo>> ownSubs       = new ConcurrentHashMap<>();
   private final ConcurrentMap<String, Set<RegistrationInfo>> localSubs     = new ConcurrentHashMap<>();
@@ -57,6 +61,7 @@ public class SubsMapHelper implements EntryCreatedListener<String, RegistrationI
 
     throttling = new Throttling(this::getAndUpdate);
     this.map = redisson.getMapCache(VERTX_SUBS_MAP_NAME);
+    rsetCache = Caffeine.newBuilder().maximumSize(10_000).build();
     listenerId = map.addListener(this);
   }
 
@@ -68,7 +73,7 @@ public class SubsMapHelper implements EntryCreatedListener<String, RegistrationI
       int                    size;
 
       String                 subSetAddress = map.computeIfAbsent(address, k -> VERTX_SUBS_SET_NAME + address);
-      RSet<RegistrationInfo> remote     = redisson.getSet(subSetAddress);
+      RSet<RegistrationInfo> remote        = rsetCache.get(subSetAddress, redisson::getSet);
 
       size = remote.size();
       Set<RegistrationInfo> local = localSubs.get(address);
@@ -107,7 +112,7 @@ public class SubsMapHelper implements EntryCreatedListener<String, RegistrationI
         ownSubs.compute(address, (add, curr) -> addToSet(registrationInfo, curr));
 
         String                 subSetAddress = map.computeIfAbsent(address, k -> VERTX_SUBS_SET_NAME + address);
-        RSet<RegistrationInfo> remote     = redisson.getSet(subSetAddress);
+        RSet<RegistrationInfo> remote        = rsetCache.get(subSetAddress, redisson::getSet);
         remote.add(registrationInfo);
       }
     } finally {
@@ -132,7 +137,7 @@ public class SubsMapHelper implements EntryCreatedListener<String, RegistrationI
         ownSubs.computeIfPresent(address, (add, curr) -> removeFromSet(registrationInfo, curr));
 
         String                 subSetAddress = map.computeIfAbsent(address, k -> VERTX_SUBS_SET_NAME + address);
-        RSet<RegistrationInfo> remote     = redisson.getSet(subSetAddress);
+        RSet<RegistrationInfo> remote        = rsetCache.get(subSetAddress, redisson::getSet);
         remote.remove(registrationInfo);
       }
     } finally {
@@ -147,7 +152,7 @@ public class SubsMapHelper implements EntryCreatedListener<String, RegistrationI
 
   public void removeAllForNodes(Set<String> nodeIds) {
     map.values().forEach(subSetAddress -> {
-      RSet<RegistrationInfo>     remote   = redisson.getSet(subSetAddress);
+      RSet<RegistrationInfo>     remote   = rsetCache.get(subSetAddress, redisson::getSet);
       Iterator<RegistrationInfo> iterator = remote.iterator();
       while (iterator.hasNext()) {
         RegistrationInfo registrationInfo = iterator.next();
@@ -163,10 +168,10 @@ public class SubsMapHelper implements EntryCreatedListener<String, RegistrationI
     writeLock.lock();
     try {
       for (Map.Entry<String, Set<RegistrationInfo>> entry : ownSubs.entrySet()) {
-        String address    = entry.getKey();
+        String address       = entry.getKey();
         String subSetAddress = VERTX_SUBS_SET_NAME + address;
         map.put(address, subSetAddress);
-        RSet<RegistrationInfo> remote = redisson.getSet(subSetAddress);
+        RSet<RegistrationInfo> remote = rsetCache.get(subSetAddress, redisson::getSet);
         for (RegistrationInfo registrationInfo : entry.getValue()) {
           remote.add(registrationInfo);
         }
@@ -211,6 +216,7 @@ public class SubsMapHelper implements EntryCreatedListener<String, RegistrationI
   public void close() {
     map.removeListener(listenerId);
     throttling.close();
+    rsetCache.invalidateAll();
   }
 
 }
