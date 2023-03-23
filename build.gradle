@@ -16,6 +16,7 @@ ext {
   vertx = [version : "4.4.0"]
   redisson = [version : "3.11.2"]
   logback = [version : "1.2.3"]
+  fastjson2 = [version : '2.0.24']  
   junitJupiter = [version : "5.7.0"]
 }
 
@@ -41,7 +42,9 @@ dependencies {
       exclude group: 'org.slf4j'
     }
     api 'org.slf4j:slf4j-api:1.7.32'
-    
+    //引入fastjson2
+    api "com.alibaba.fastjson2:fastjson2:${fastjson2.version}"
+      
     testImplementation 'org.slf4j:slf4j-api:1.7.32'
     testImplementation 'ch.qos.logback:logback-core:1.2.10'
     testImplementation 'ch.qos.logback:logback-classic:1.2.10'

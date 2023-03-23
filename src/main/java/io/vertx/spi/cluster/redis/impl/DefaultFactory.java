@@ -1,18 +1,3 @@
-/*
- * Copyright (c) 2019 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
- *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
- *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
- */
 package io.vertx.spi.cluster.redis.impl;
 
 import java.text.MessageFormat;
@@ -30,15 +15,6 @@ import io.vertx.core.spi.cluster.ClusterManager;
 import io.vertx.spi.cluster.redis.Factory;
 import io.vertx.core.impl.logging.Logger;
 import io.vertx.core.impl.logging.LoggerFactory;
-
-/**
- * 
- * @see org.redisson.api.RLocalCachedMap
- * @see org.redisson.Redisson#getLocalCachedMap
- * @see org.redisson.api.LocalCachedMapOptions
- * 
- * @author <a href="mailto:leo.tu.taipei@gmail.com">Leo Tu</a>
- */
 public class DefaultFactory implements Factory {
   private static final Logger log = LoggerFactory.getLogger(DefaultFactory.class);
 
@@ -56,14 +32,6 @@ public class DefaultFactory implements Factory {
     return new RedisMap<>(vertx, redisson, nameWithCodec.name, nameWithCodec.codec);
   }
 
-  @Override
-  public Map<String, String> createMapHaInfo(Vertx vertx, ClusterManager clusterManager, RedissonClient redisson,
-      String name) {
-    ExpirableMapWrapper<String, String> asyncTTL = new ExpirableMapWrapper<>(vertx, redisson, name);
-    RedisMapHaInfo haInfo = new RedisMapHaInfo(vertx, clusterManager, redisson, name, asyncTTL);
-    asyncTTL.setMap((RMapCache<String, String>) haInfo.getMapAsync());
-    return haInfo;
-  }
 
   // ===
   private enum Type {
@@ -143,7 +111,7 @@ public class DefaultFactory implements Factory {
         codec = def;
       }
       log.debug(
-          MessageFormat.format("old name: '{0}', new name: '{1}', keyType: '{2}', valType :'{3}', codec: '{4}'",
+          MessageFormat.format("old name: `{0}`, new name: `{1}`, keyType: `{2}`, valType: `{3}`, codec: `{4}`",
               name,
               types.name,
               types.keyType,

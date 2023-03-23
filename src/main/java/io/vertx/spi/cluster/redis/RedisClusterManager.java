@@ -1,18 +1,3 @@
-/*
- * Copyright (c) 2019 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
- *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
- *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
- */
 package io.vertx.spi.cluster.redis;
 
 import java.io.IOException;
@@ -61,12 +46,6 @@ import io.vertx.core.spi.cluster.RegistrationInfo;
 import io.vertx.spi.cluster.redis.impl.ConfigUtil;
 import io.vertx.core.json.JsonObject;
 
-/**
- * https://github.com/redisson/redisson/wiki/11.-Redis-commands-mapping
- * 
- * 
- * @author <a href="mailto:leo.tu.taipei@gmail.com">Leo Tu</a>
- */
 public class RedisClusterManager implements ClusterManager {
   private static final Logger log = LoggerFactory.getLogger(RedisClusterManager.class);
 
@@ -301,6 +280,24 @@ public class RedisClusterManager implements ClusterManager {
   }
 
   @Override
+  public void addRegistration(String address, RegistrationInfo registrationInfo, Promise<Void> promise) {
+    // TODO Auto-generated method stub
+    
+  }
+
+  @Override
+  public void removeRegistration(String address, RegistrationInfo registrationInfo, Promise<Void> promise) {
+    // TODO Auto-generated method stub
+    
+  }
+
+  @Override
+  public void getRegistrations(String address, Promise<List<RegistrationInfo>> promise) {
+    // TODO Auto-generated method stub
+    
+  }
+  
+  @Override
   public String toString() {
     return MessageFormat.format("Redis Cluster Manager {nodeID={0}}", getNodeId());
   }
@@ -452,24 +449,6 @@ public class RedisClusterManager implements ClusterManager {
     public void release() {
       lock.unlock();
     }
-  }
-
-  @Override
-  public void addRegistration(String address, RegistrationInfo registrationInfo, Promise<Void> promise) {
-    // TODO Auto-generated method stub
-    
-  }
-
-  @Override
-  public void removeRegistration(String address, RegistrationInfo registrationInfo, Promise<Void> promise) {
-    // TODO Auto-generated method stub
-    
-  }
-
-  @Override
-  public void getRegistrations(String address, Promise<List<RegistrationInfo>> promise) {
-    // TODO Auto-generated method stub
-    
   }
 
 }
