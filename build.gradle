@@ -14,7 +14,7 @@ targetCompatibility = '11'
 
 ext {
   vertx = [version : "4.4.0"]
-  redisson = [version : "3.11.2"]
+  redisson = [version : "3.20.1"]
   logback = [version : "1.2.3"]
   fastjson2 = [version : "2.0.24"]  
   caffeine = [version : "3.1.5"]

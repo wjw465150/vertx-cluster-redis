@@ -9,8 +9,6 @@ import io.vertx.core.AsyncResult;
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
 import io.vertx.core.shareddata.AsyncMap;
-import io.vertx.core.spi.cluster.ClusterManager;
-import io.vertx.core.spi.cluster.NodeListener;
 import io.vertx.spi.cluster.redis.impl.DefaultFactory;
 
 public interface Factory {
@@ -18,6 +16,10 @@ public interface Factory {
   <K, V> AsyncMap<K, V> createAsyncMap(Vertx vertx, RedissonClient redisson, String name);
 
   <K, V> Map<K, V> createMap(Vertx vertx, RedissonClient redisson, String name);
+
+  public static Factory createDefaultFactory() {
+    return new DefaultFactory();
+  }
 
   interface ExpirableAsync<K> {
 
@@ -36,10 +38,6 @@ public interface Factory {
      */
     void refreshTTLIfPresent(K k, long timeToLive, TimeUnit timeUnit, Handler<AsyncResult<Long>> resultHandler);
 
-  }
-
-  public static Factory createDefaultFactory() {
-    return new DefaultFactory();
   }
 
 }

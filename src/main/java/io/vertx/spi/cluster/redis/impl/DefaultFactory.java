@@ -1,123 +1,25 @@
 package io.vertx.spi.cluster.redis.impl;
 
-import java.text.MessageFormat;
 import java.util.Map;
 
-import org.redisson.api.RMapCache;
 import org.redisson.api.RedissonClient;
-import org.redisson.client.codec.Codec;
-import org.redisson.client.codec.StringCodec;
-import org.redisson.codec.JsonJacksonCodec;
 
 import io.vertx.core.Vertx;
+import io.vertx.core.impl.VertxInternal;
 import io.vertx.core.shareddata.AsyncMap;
-import io.vertx.core.spi.cluster.ClusterManager;
 import io.vertx.spi.cluster.redis.Factory;
-import io.vertx.core.impl.logging.Logger;
-import io.vertx.core.impl.logging.LoggerFactory;
+
+
 public class DefaultFactory implements Factory {
-  private static final Logger log = LoggerFactory.getLogger(DefaultFactory.class);
-
-  private final SpecifyCodec specify = new SpecifyCodec();
-
   @Override
   public <K, V> AsyncMap<K, V> createAsyncMap(Vertx vertx, RedissonClient redisson, String name) {
-    NameWithCodec nameWithCodec = specify.selectCodecByName(name, new RedisMapCodec());
-    return new RedisAsyncMap<>(vertx, redisson, nameWithCodec.name, nameWithCodec.codec);
+    return new RedisAsyncMap<>((VertxInternal) vertx, redisson.getMapCache(name));
   }
 
   @Override
   public <K, V> Map<K, V> createMap(Vertx vertx, RedissonClient redisson, String name) {
-    NameWithCodec nameWithCodec = specify.selectCodecByName(name, new JsonJacksonCodec());
-    return new RedisMap<>(vertx, redisson, nameWithCodec.name, nameWithCodec.codec);
+    return new RedisMap<>(vertx, redisson, name);
   }
 
 
-  // ===
-  private enum Type {
-    DEFAULT(""), KEY_STRING("@key:String"), VAL_STRING("@val:String"), VAL_JSON("@val:Json");
-
-    final private String value;
-
-    private Type(String value) {
-      this.value = value;
-    }
-  }
-
-  private class NameWithCodec {
-    final public String name;
-    final public Codec  codec;
-
-    public NameWithCodec(String name, Codec codec) {
-      this.name = name;
-      this.codec = codec;
-    }
-  }
-
-  private class SpecifyCodec {
-
-    private class WhichType {
-      private String name;
-      private Type   keyType = Type.DEFAULT;
-      private Type   valType = Type.DEFAULT;
-    }
-
-    private WhichType parseType(String name) {
-      int       idx  = name.indexOf(Type.KEY_STRING.value);
-      WhichType type = new WhichType();
-      if (idx != -1) {
-        type.keyType = Type.KEY_STRING;
-        name = name.substring(0, idx) + name.substring(idx + Type.KEY_STRING.value.length());
-      }
-      idx = name.indexOf(Type.VAL_STRING.value);
-      if (idx != -1) {
-        type.valType = Type.VAL_STRING;
-        name = name.substring(0, idx) + name.substring(idx + Type.VAL_STRING.value.length());
-      } else {
-        idx = name.indexOf(Type.VAL_JSON.value);
-        if (idx != -1) {
-          type.valType = Type.VAL_JSON;
-          name = name.substring(0, idx) + name.substring(idx + Type.VAL_JSON.value.length());
-        }
-      }
-      type.name = name;
-      return type;
-    }
-
-    private NameWithCodec selectCodecByName(String name, Codec def) {
-      WhichType types = parseType(name);
-
-      Codec codec;
-      if (types.keyType == Type.KEY_STRING && types.valType == Type.VAL_STRING) {
-        codec = StringCodec.INSTANCE;
-      } else if (types.keyType == Type.KEY_STRING && types.valType == Type.VAL_JSON) {
-        codec = new KeyValueCodec(//
-            JsonJacksonCodec.INSTANCE.getValueEncoder(), //
-            JsonJacksonCodec.INSTANCE.getValueDecoder(), //
-            StringCodec.INSTANCE.getMapKeyEncoder(), //
-            StringCodec.INSTANCE.getMapKeyDecoder(), //
-            JsonJacksonCodec.INSTANCE.getValueEncoder(), //
-            JsonJacksonCodec.INSTANCE.getValueDecoder());
-      } else if (types.keyType == Type.KEY_STRING) {
-        RedisMapCodec valCodec = new RedisMapCodec();
-        codec = new KeyValueCodec(//
-            valCodec.getValueEncoder(), // JsonJacksonCodec.INSTANCE.getValueEncoder(), //
-            valCodec.getValueDecoder(), // JsonJacksonCodec.INSTANCE.getValueDecoder(), //
-            StringCodec.INSTANCE.getMapKeyEncoder(), //
-            StringCodec.INSTANCE.getMapKeyDecoder(), //
-            valCodec.getValueEncoder(), // JsonJacksonCodec.INSTANCE.getValueEncoder(), //
-            valCodec.getValueDecoder()); // JsonJacksonCodec.INSTANCE.getValueDecoder());
-      } else {
-        codec = def;
-      }
-      log.debug(
-          MessageFormat.format("old name: `{0}`, new name: `{1}`, keyType: `{2}`, valType: `{3}`, codec: `{4}`",
-              name,
-              types.name,
-              types.keyType,
-              types.valType,
-              codec));
-      return new NameWithCodec(types.name, codec);
-    }
-  }
 }

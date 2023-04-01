@@ -5,36 +5,32 @@ import java.text.MessageFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.redisson.Redisson;
 import org.redisson.api.RAtomicLong;
-import org.redisson.api.RBucket;
 import org.redisson.api.RLock;
-import org.redisson.api.RMap;
-import org.redisson.api.RSet;
+import org.redisson.api.RMapCache;
 import org.redisson.api.RedissonClient;
+import org.redisson.api.map.event.EntryCreatedListener;
+import org.redisson.api.map.event.EntryEvent;
+import org.redisson.api.map.event.EntryExpiredListener;
+import org.redisson.api.map.event.EntryRemovedListener;
+import org.redisson.api.map.event.EntryUpdatedListener;
 import org.redisson.config.Config;
 
-import io.vertx.core.AsyncResult;
-import io.vertx.core.Context;
-import io.vertx.core.Future;
-import io.vertx.core.Handler;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.core.buffer.Buffer;
+import io.vertx.core.VertxException;
 import io.vertx.core.impl.VertxInternal;
 import io.vertx.core.impl.logging.Logger;
 import io.vertx.core.impl.logging.LoggerFactory;
+import io.vertx.core.json.JsonObject;
 import io.vertx.core.shareddata.AsyncMap;
 import io.vertx.core.shareddata.Counter;
 import io.vertx.core.shareddata.Lock;
@@ -44,65 +40,64 @@ import io.vertx.core.spi.cluster.NodeListener;
 import io.vertx.core.spi.cluster.NodeSelector;
 import io.vertx.core.spi.cluster.RegistrationInfo;
 import io.vertx.spi.cluster.redis.impl.ConfigUtil;
-import io.vertx.core.json.JsonObject;
+import io.vertx.spi.cluster.redis.impl.RedisAsyncMap;
+import io.vertx.spi.cluster.redis.impl.RedisCounter;
+import io.vertx.spi.cluster.redis.impl.RedisLock;
+import io.vertx.spi.cluster.redis.impl.SubsMapHelper;
 
-public class RedisClusterManager implements ClusterManager {
+public class RedisClusterManager implements ClusterManager, EntryCreatedListener<String, NodeInfo>, EntryUpdatedListener<String, NodeInfo>, EntryExpiredListener<String, NodeInfo>, EntryRemovedListener<String, NodeInfo> {
   private static final Logger log = LoggerFactory.getLogger(RedisClusterManager.class);
 
   private VertxInternal vertx;
-  private NodeSelector nodeSelector;  
-  
-  private NodeListener nodeListener;
-  private RSet<String> clusterNodes;
-  private volatile boolean active;
-  private volatile boolean joined;
-  
-  
-  private String nodeId;
-  private NodeInfo nodeInfo;
-  private RedissonClient redisson;  //对应: private CuratorFramework curator;
-  private boolean customCuratorCluster;
-  private final Map<String, NodeInfo> localNodeInfo = new ConcurrentHashMap<>();
-  private final Map<String, RedisLock> locks = new ConcurrentHashMap<>();
-  private final Map<String, AsyncMap<?, ?>> asyncMapCache = new ConcurrentHashMap<>();  //目的是缓存已经创建的AsyncMap,为了提高速度
-  private final Map<String, Map<?, ?>> mapCache = new ConcurrentHashMap<>();  //目的是缓存已经创建的Map,为了提高速度
-  
+  private NodeSelector  nodeSelector;
+
+  private NodeListener                nodeListener;
+  private RMapCache<String, NodeInfo> clusterNodes;
+  private volatile boolean            active;
+  private volatile boolean            joined;
+
+  private String                            nodeId;
+  private NodeInfo                          nodeInfo;
+  private RedissonClient                    redisson;
+  private boolean                           customRedisCluster;
+  private SubsMapHelper                     subsMapHelper;
+  private final Map<String, NodeInfo>       localNodeInfo = new ConcurrentHashMap<>();
+  private final Map<String, RedisLock>      locks         = new ConcurrentHashMap<>();
+  private final Map<String, AsyncMap<?, ?>> asyncMapCache = new ConcurrentHashMap<>(); //目的是缓存已经创建的AsyncMap,为了提高速度
+  private final Map<String, Map<?, ?>>      mapCache      = new ConcurrentHashMap<>(); //目的是缓存已经创建的Map,为了提高速度
+
   private JsonObject conf = new JsonObject();
-  
-  private static final String ZK_PATH_LOCKS = "__vertx:locks:/";
-  private static final String CLUSTER_NODES = "__vertx:cluster:nodes:";  //private static final String ZK_PATH_CLUSTER_NODE = "/cluster/nodes/";
-  
-  private static final String CLUSTER_MAP_NAME = "__vertx:maps:"; 
-  private static final String SUBS_MAP_NAME = "__vertx:subs:";
+
+  private static final String CLUSTER_LOCKS    = "__vertx:locks:";
+  private static final String CLUSTER_COUNTERS = "__vertx:counters:";
+  private static final String CLUSTER_NODES    = "__vertx:cluster:nodes:";
+
+  private static final String CLUSTER_ASYNC_MAP_NAME = "__vertx:asyncmaps:";
+  private static final String CLUSTER_SYNC_MAP_NAME  = "__vertx:syncmaps:";
+  private static final String CLUSTER_SUBS_NAME      = "__vertx:subs:";
 
   private ExecutorService lockReleaseExec;
 
-////////////////自己的  
+  ////////////////自己的  
   private final Factory factory;
 
-  
-  private Map<String, String> haInfo;
+  private Map<String, String>        haInfo;
   private AsyncMap<String, NodeInfo> subs;
-  //现在看来没有? private RMap<String, NodeInfo> rNodeInfo;
 
-  private Function<String, String> resolveNodeId = path -> {
-    String[] pathArr = path.split(":");
-    return pathArr[pathArr.length - 1];
-  };
-
+  /**
+   * Constructor - gets config from classpath
+   */
   public RedisClusterManager() throws IOException {
     this((String) null);
   }
-  
+
   public RedisClusterManager(String resourceLocation) throws IOException {
     conf = ConfigUtil.loadConfig(resourceLocation);
-    Config config = Config.fromJSON(conf.encode());
 
-    this.redisson = Redisson.create(config);
     this.nodeId = UUID.randomUUID().toString();
     this.factory = Factory.createDefaultFactory();
   }
-  
+
   public RedisClusterManager(RedissonClient redisson) {
     this(redisson, UUID.randomUUID().toString());
   }
@@ -112,42 +107,42 @@ public class RedisClusterManager implements ClusterManager {
     this.redisson = redisson;
     this.nodeId = nodeId;
     this.factory = Factory.createDefaultFactory();
+    this.customRedisCluster = true;
   }
 
+  public void setConfig(JsonObject conf) {
+    this.conf = conf;
+  }
+
+  public JsonObject getConfig() {
+    return conf;
+  }
 
   @Override
   public void init(Vertx vertx, NodeSelector nodeSelector) {
     this.vertx = (VertxInternal) vertx;
     this.nodeSelector = nodeSelector;
   }
-  
+
   @Override
   public <K, V> void getAsyncMap(String name, Promise<AsyncMap<K, V>> promise) {
-    vertx.executeBlocking(future -> {
-      @SuppressWarnings("unchecked")
-      AsyncMap<K, V> asyncMap = (AsyncMap<K, V>) asyncMapCache.computeIfAbsent(name,
-          key -> factory.createAsyncMap(vertx, redisson, name));
-      future.complete(asyncMap);
-    }, promise);
+    promise.complete(new RedisAsyncMap<>(vertx, redisson.getMapCache(CLUSTER_ASYNC_MAP_NAME + name)));
   }
 
-  @SuppressWarnings("unchecked")
   @Override
   public <K, V> Map<K, V> getSyncMap(String name) {
-    Map<K, V> map = (Map<K, V>) mapCache.computeIfAbsent(name,
-        key -> factory.createMap(vertx, redisson, name));
-    return map;
+    return redisson.getMap(CLUSTER_SYNC_MAP_NAME + name);
   }
-  
+
   @Override
   public void getLockWithTimeout(String name, long timeout, Promise<Lock> promise) {
-    RedisLock lock = locks.get(name);
+    RedisLock lock = locks.get(CLUSTER_LOCKS + name);
     if (lock != null) {
       promise.complete(lock);
       return;
     }
-    
-    RLock rLock = redisson.getLock(name);
+
+    RLock     rLock   = redisson.getLock(name);
     RedisLock newLock = new RedisLock(rLock);
     rLock.tryLockAsync(timeout, TimeUnit.MILLISECONDS).whenComplete((rv, e) -> {
       if (e != null) {
@@ -163,8 +158,8 @@ public class RedisClusterManager implements ClusterManager {
   @Override
   public void getCounter(String name, Promise<Counter> promise) {
     try {
-      RAtomicLong counter = redisson.getAtomicLong(name);
-      promise.complete(new RedisCounter(counter));
+      RAtomicLong counter = redisson.getAtomicLong(CLUSTER_COUNTERS + name);
+      promise.complete(new RedisCounter(vertx, counter));
     } catch (Exception e) {
       log.warn(MessageFormat.format("nodeId: {0}, counter name: {1}", nodeId, name), e);
       promise.fail(e);
@@ -176,23 +171,20 @@ public class RedisClusterManager implements ClusterManager {
     return nodeId;
   }
 
-  /**
-   * @see io.vertx.core.impl.HAManager#addHaInfoIfLost
-   */
   @Override
   public List<String> getNodes() {
-    List<String> nodes = clusterNodes.stream().collect(Collectors.toList());
+    List<String> nodes = clusterNodes.keySet().stream().collect(Collectors.toList());
     if (nodes.isEmpty()) {
       log.warn(MessageFormat.format("(nodes.isEmpty()), nodeId: {0}", nodeId));
     } else {
- 			log.debug(MessageFormat.format("nodeId: {0}, nodes.size: {1}, nodes: {2}", nodeId, nodes.size(), nodes));
- 		}
+      log.debug(MessageFormat.format("nodeId: {0}, nodes.size: {1}, nodes: {2}", nodeId, nodes.size(), nodes));
+    }
     return nodes;
   }
-  
+
   @Override
-  public void nodeListener(NodeListener nodeListener) {
-    this.nodeListener = nodeListener;
+  public void nodeListener(NodeListener listener) {
+    this.nodeListener = listener;
   }
 
   @Override
@@ -200,23 +192,11 @@ public class RedisClusterManager implements ClusterManager {
     synchronized (this) {
       this.nodeInfo = nodeInfo;
     }
-    
-    try {
-      RBucket<NodeInfo> rBucketNodeInfo = redisson.getBucket(CLUSTER_NODES+nodeId);
-      rBucketNodeInfo.setAsync(nodeInfo).whenComplete((rv,e) -> {
-        if(e != null) {
-          log.error(MessageFormat.format("setNodeInfo nodeId: {0}", nodeId), e);
-          promise.fail(e);
-        } else {
-          localNodeInfo.put(nodeId, nodeInfo);
-          promise.complete();
-        }
-      });
-    } catch (Exception e) {
-      log.error("setNodeInfo failed.", e);
-      promise.fail(e);
-    }
-    
+    vertx.executeBlocking(prom -> {
+      localNodeInfo.put(nodeId, nodeInfo);
+      clusterNodes.put(nodeId, nodeInfo);
+      prom.complete();
+    }, false, promise);
   }
 
   @Override
@@ -226,52 +206,94 @@ public class RedisClusterManager implements ClusterManager {
 
   @Override
   public void getNodeInfo(String nodeId, Promise<NodeInfo> promise) {
-    RBucket<NodeInfo> rBucketNodeInfo = redisson.getBucket(CLUSTER_NODES+nodeId);
-    rBucketNodeInfo.getAsync().whenComplete((rv,e) -> {
-      if(e != null) {
-        log.error(MessageFormat.format("getNodeInfo nodeId: {0}", nodeId), e);
-        promise.fail(e);
+    vertx.executeBlocking(prom -> {
+      NodeInfo remoteNodeInfo = clusterNodes.get(nodeId);
+      if (remoteNodeInfo != null) {
+        prom.complete(remoteNodeInfo);
       } else {
-        promise.complete(rv);
+        promise.fail("Not a member of the cluster");
       }
-    });
+    }, false, promise);
   }
-  
+
+  private void addLocalNodeId() throws VertxException {
+    clusterNodes = redisson.getMapCache(CLUSTER_NODES);
+    clusterNodes.addListener(this);
+    try {
+      //Join to the cluster
+      createThisNode();
+      joined = true;
+      subsMapHelper = new SubsMapHelper(vertx, redisson, nodeSelector, nodeId);
+    } catch (Exception e) {
+      throw new VertxException(e);
+    }
+  }
+
+  private void createThisNode() throws Exception {
+    clusterNodes.put(nodeId, nodeInfo);
+  }
+
   @Override
   public void join(Promise<Void> promise) {
-    if (!active) {
-      active = true;
-      lockReleaseExec = Executors.newCachedThreadPool(r -> new Thread(r, "vertx-redis-service-release-lock-thread"));
-     
-      this.nodeId = UUID.randomUUID().toString();
-      promise.complete();
-    } else {
-      log.warn(MessageFormat.format("Already activated, nodeId: {0}", nodeId));
-      promise.fail(new IllegalStateException(MessageFormat.format("Already activated, nodeId: {0}", nodeId)));
-    }
+    vertx.executeBlocking(prom -> {
+      if (!active) {
+        active = true;
+        lockReleaseExec = Executors.newCachedThreadPool(r -> new Thread(r, "vertx-redis-service-release-lock-thread"));
+
+        //The redis instance has been passed using the constructor.
+        if (customRedisCluster) {
+          try {
+            addLocalNodeId();
+            prom.complete();
+          } catch (VertxException e) {
+            prom.fail(e);
+          }
+          return;
+        }
+
+        try {
+          if (this.redisson == null) {
+            Config config = Config.fromJSON(conf.encode());
+            this.redisson = Redisson.create(config);
+          }
+
+          nodeId = UUID.randomUUID().toString();
+          addLocalNodeId();
+          prom.complete();
+        } catch (Exception e) {
+          prom.fail(e);
+        }
+      } else {
+        prom.complete();
+      }
+    }, promise);
   }
 
   @Override
   public void leave(Promise<Void> promise) {
-    
-    synchronized (RedisClusterManager.this) {
-      if (active) {
-        active = false;
-        joined = false;
-        lockReleaseExec.shutdown();
-        try {
-          redisson.shutdown();
-        } catch (Exception e) {
-          log.warn(MessageFormat.format("Already activated, nodeId: {0}", nodeId));
-          promise.fail(new IllegalStateException(MessageFormat.format("Already activated, nodeId: {0}", nodeId)));
-        } finally {
-          promise.complete();
+    vertx.executeBlocking(prom -> {
+      // We need to synchronized on the cluster manager instance to avoid other call to happen while leaving the
+      // cluster, typically, memberRemoved and memberAdded
+      synchronized (RedisClusterManager.this) {
+        if (active) {
+          try {
+            active = false;
+            joined = false;
+            lockReleaseExec.shutdown();
+
+            clusterNodes.remove(nodeId);
+            subsMapHelper.close();
+            if (!customRedisCluster) {
+              redisson.shutdown();
+              redisson = null;
+            }
+          } catch (Exception ex) {
+            prom.fail(ex);
+          }
         }
-      } else {
-        promise.complete();
       }
-    }
-    
+      prom.complete();
+    }, promise);
   }
 
   @Override
@@ -281,174 +303,63 @@ public class RedisClusterManager implements ClusterManager {
 
   @Override
   public void addRegistration(String address, RegistrationInfo registrationInfo, Promise<Void> promise) {
-    // TODO Auto-generated method stub
-    
+    subsMapHelper.put(address, registrationInfo, promise);
   }
 
   @Override
   public void removeRegistration(String address, RegistrationInfo registrationInfo, Promise<Void> promise) {
-    // TODO Auto-generated method stub
-    
+    subsMapHelper.remove(address, registrationInfo, promise);
   }
 
   @Override
   public void getRegistrations(String address, Promise<List<RegistrationInfo>> promise) {
-    // TODO Auto-generated method stub
-    
+    vertx.executeBlocking(prom -> {
+      prom.complete(subsMapHelper.get(address));
+    }, false, promise);
   }
-  
+
   @Override
   public String toString() {
     return MessageFormat.format("Redis Cluster Manager {nodeID={0}}", getNodeId());
   }
 
-  /**
-   * Lock implement
-   */
-  private class RedisCounter implements Counter {
-    private final RAtomicLong counter;
+  @Override
+  public void onCreated(EntryEvent<String, NodeInfo> event) {
+    if (!active)
+      return;
 
-    public RedisCounter(RAtomicLong counter) {
-      this.counter = counter;
-    }
-
-    @Override
-    public Future<Long> get() {
-      Promise<Long> promise = Promise.promise();
-      Context       context = vertx.getOrCreateContext();
-      counter.getAsync().whenComplete((rv, e) -> 
-        context.runOnContext(vd -> {
-          if (e != null) {
-            promise.fail(e);
-          } else {
-            promise.complete(rv);
-          }
-        })
-      );
-
-      return promise.future();
-    }
-
-    @Override
-    public Future<Long> incrementAndGet() {
-      Promise<Long> promise = Promise.promise();
-      Context       context = vertx.getOrCreateContext();
-      counter.incrementAndGetAsync().whenComplete((rv, e) -> 
-        context.runOnContext(vd -> {
-          if (e != null) {
-            promise.fail(e);
-          } else {
-            promise.complete(rv);
-          }
-        })
-      );
-
-      return promise.future();
-    }
-
-    
-    @Override
-    public Future<Long> getAndIncrement() {
-      Promise<Long> promise = Promise.promise();
-      Context       context = vertx.getOrCreateContext();
-      counter.getAndIncrementAsync().whenComplete((rv, e) -> 
-        context.runOnContext(vd -> {
-          if (e != null) {
-            promise.fail(e);
-          } else {
-            promise.complete(rv);
-          }
-        })
-      );
-
-      return promise.future();
-    }
-
-    
-    @Override
-    public Future<Long> decrementAndGet() {
-      Promise<Long> promise = Promise.promise();
-      Context       context = vertx.getOrCreateContext();
-      counter.decrementAndGetAsync().whenComplete((rv, e) -> 
-        context.runOnContext(vd -> {
-          if (e != null) {
-            promise.fail(e);
-          } else {
-            promise.complete(rv);
-          }
-        })
-      );
-
-      return promise.future();
-    }
-
-    
-    @Override
-    public Future<Long> addAndGet(long value) {
-      Promise<Long> promise = Promise.promise();
-      Context       context = vertx.getOrCreateContext();
-      counter.addAndGetAsync(value).whenComplete((rv, e) -> 
-        context.runOnContext(vd -> {
-          if (e != null) {
-            promise.fail(e);
-          } else {
-            promise.complete(rv);
-          }
-        })
-      );
-
-      return promise.future();
-    }
-
-    @Override
-    public Future<Long> getAndAdd(long value) {
-      Promise<Long> promise = Promise.promise();
-      Context       context = vertx.getOrCreateContext();
-      counter.getAndAddAsync(value).whenComplete((rv, e) -> 
-        context.runOnContext(vd -> {
-          if (e != null) {
-            promise.fail(e);
-          } else {
-            promise.complete(rv);
-          }
-        })
-      );
-
-      return promise.future();
-    }
-    
-    @Override
-    public Future<Boolean> compareAndSet(long expected, long value) {
-      Promise<Boolean> promise = Promise.promise();
-      Context       context = vertx.getOrCreateContext();
-      counter.compareAndSetAsync(expected,value).whenComplete((rv, e) -> 
-        context.runOnContext(vd -> {
-          if (e != null) {
-            promise.fail(e);
-          } else {
-            promise.complete(rv);
-          }
-        })
-      );
-
-      return promise.future();
+    try {
+      if (nodeListener != null) {
+        nodeListener.nodeAdded(event.getKey());
+      }
+    } catch (Throwable t) {
+      log.error("Failed to handle memberAdded", t);
     }
   }
 
-  /**
-   * Lock implement
-   */
-  private class RedisLock implements io.vertx.core.shareddata.Lock {
-    private final RLock lock;
+  @Override
+  public void onRemoved(EntryEvent<String, NodeInfo> event) {
+    if (!active)
+      return;
 
-    public RedisLock(RLock lock) {
-      this.lock = lock;
+    try {
+      if (nodeListener != null) {
+        nodeListener.nodeLeft(event.getKey());
+      }
+    } catch (Throwable t) {
+      log.warn("Failed to handle memberRemoved", t);
     }
+  }
 
-    @Override
-    public void release() {
-      lock.unlock();
-    }
+  @Override
+  public void onExpired(EntryEvent<String, NodeInfo> event) {
+    this.onRemoved(event);
+  }
+
+  @Override
+  public void onUpdated(EntryEvent<String, NodeInfo> event) {
+    if (!active)
+      return;
   }
 
 }
