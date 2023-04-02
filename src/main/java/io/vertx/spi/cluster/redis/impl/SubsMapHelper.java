@@ -116,7 +116,11 @@ public class SubsMapHelper implements EntryCreatedListener<String, RegistrationI
         vertx.runOnContext(aVoid -> {
           Set<RegistrationInfo> registrationInfoSet = ownSubs.computeIfPresent(address, (add, curr) -> removeFromSet(registrationInfo, curr));
 
-          treeCache.put(address,registrationInfoSet);
+          if(registrationInfoSet == null) {
+            treeCache.remove(address);
+          } else {
+            treeCache.put(address,registrationInfoSet);
+          }
           promise.complete();
         });
       }

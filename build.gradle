@@ -1,5 +1,5 @@
 plugins {
-  id 'java'
+  id 'eclipse'
   id 'java-library'
 }
 
@@ -19,6 +19,7 @@ ext {
   fastjson2 = [version : "2.0.24"]  
   caffeine = [version : "3.1.5"]
   junitJupiter = [version : "5.7.0"]
+  junit = [version : "4.13.1"]
 }
 
 repositories {
@@ -33,35 +34,50 @@ repositories {
   }
 }
 
+configurations {
+  provided
+  optional 
+}
+
 dependencies {
-    implementation platform("io.vertx:vertx-stack-depchain:${vertx.version}")  //Vert.x Stack Depchain,集中了Vert.x的依赖版本管理,这样后面在导入Vert.x模块时就不必再填写版本号了!
+  implementation platform("io.vertx:vertx-stack-depchain:${vertx.version}")  //Vert.x Stack Depchain,集中了Vert.x的依赖版本管理,这样后面在导入Vert.x模块时就不必再填写版本号了!
 
-    api "io.vertx:vertx-core"
-    api "io.vertx:vertx-web"
-    api("org.redisson:redisson:${redisson.version}") {
-      exclude group: 'io.netty'
-      exclude group: 'org.slf4j'
-    }
-    api 'org.slf4j:slf4j-api:1.7.32'
-      
-    testImplementation 'org.slf4j:slf4j-api:1.7.32'
-    testImplementation 'ch.qos.logback:logback-core:1.2.10'
-    testImplementation 'ch.qos.logback:logback-classic:1.2.10'
+  api "io.vertx:vertx-core"
+  optional "io.vertx:vertx-web"
+  api("org.redisson:redisson:${redisson.version}") {
+    exclude group: 'io.netty'
+    exclude group: 'org.slf4j'
+  }
+  api 'org.slf4j:slf4j-api:1.7.32'
+    
+  provided "io.vertx:vertx-codegen"
+  provided "io.vertx:vertx-docgen"
+  
+  testImplementation 'org.slf4j:slf4j-api:1.7.32'
+  testImplementation 'ch.qos.logback:logback-core:1.2.10'
+  testImplementation 'ch.qos.logback:logback-classic:1.2.10'
 
-    testImplementation platform("io.vertx:vertx-stack-depchain:${vertx.version}")  //Vert.x Stack Depchain,集中了Vert.x的依赖版本管理,这样后面在导入Vert.x模块时就不必再填写版本号了!
-    testImplementation("io.vertx:vertx-core") {
-      artifact {
-        classifier = 'tests'
-      }
+  testImplementation platform("io.vertx:vertx-stack-depchain:${vertx.version}")  //Vert.x Stack Depchain,集中了Vert.x的依赖版本管理,这样后面在导入Vert.x模块时就不必再填写版本号了!
+  testImplementation("io.vertx:vertx-core") {
+    artifact {
+      classifier = 'tests'
     }
-    testImplementation("io.vertx:vertx-web") {
-      artifact {
-        classifier = 'tests'
-      }
+  }
+  testImplementation("io.vertx:vertx-web") {
+    artifact {
+      classifier = 'tests'
     }
+  }
+  testImplementation("io.vertx:vertx-service-discovery") {
+    artifact {
+      classifier = 'tests'
+    }
+  }
 
-    testImplementation "io.vertx:vertx-junit5"
-    testImplementation "org.junit.jupiter:junit-jupiter:${junitJupiter.version}"    
+  testImplementation "io.vertx:vertx-service-discovery"
+  testImplementation "io.vertx:vertx-service-proxy"
+  testImplementation "junit:junit:${junit.version}"
+  testImplementation "com.jayway.awaitility:awaitility:1.7.0"
 }
 
 

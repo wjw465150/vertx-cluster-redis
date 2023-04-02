@@ -221,7 +221,7 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
   }
 
   private void addLocalNodeId() throws VertxException {
-    clusterNodes = redisson.getMapCache(VERTX_CLUSTER_NODES,JsonJacksonCodec.INSTANCE);
+    clusterNodes = redisson.getMapCache(VERTX_CLUSTER_NODES, JsonJacksonCodec.INSTANCE);
     clusterNodes.addListener(this);
     try {
       //Join to the cluster
@@ -233,7 +233,9 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
   }
 
   private void createThisNode() throws Exception {
-    clusterNodes.put(nodeId, nodeInfo);
+    if (nodeInfo != null) {
+      clusterNodes.put(nodeId, nodeInfo);
+    }
   }
 
   @Override
