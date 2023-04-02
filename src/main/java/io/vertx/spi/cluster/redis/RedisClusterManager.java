@@ -74,15 +74,8 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
 
   private static final String CLUSTER_ASYNC_MAP_NAME = "__vertx:asyncmaps:";
   private static final String CLUSTER_SYNC_MAP_NAME  = "__vertx:syncmaps:";
-  private static final String CLUSTER_SUBS_NAME      = "__vertx:subs:";
 
   private ExecutorService lockReleaseExec;
-
-  ////////////////自己的  
-  private final Factory factory;
-
-  private Map<String, String>        haInfo;
-  private AsyncMap<String, NodeInfo> subs;
 
   /**
    * Constructor - gets config from classpath
@@ -95,7 +88,6 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
     conf = ConfigUtil.loadConfig(resourceLocation);
 
     this.nodeId = UUID.randomUUID().toString();
-    this.factory = Factory.createDefaultFactory();
   }
 
   public RedisClusterManager(RedissonClient redisson) {
@@ -106,7 +98,6 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
     Objects.requireNonNull(redisson, "redisson");
     this.redisson = redisson;
     this.nodeId = nodeId;
-    this.factory = Factory.createDefaultFactory();
     this.customRedisCluster = true;
   }
 

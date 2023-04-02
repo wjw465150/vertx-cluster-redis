@@ -38,10 +38,6 @@ public class SubsMapHelper implements EntryCreatedListener<String, RegistrationI
   
   private static final String VERTX_SUBS_NAME = "__vertx:subs";
   
-  //private static final Function<String, String> keyPath = address -> VERTX_SUBS_NAME + ":" + address;
-  //private static final Function<RegistrationInfo, String> valuePath = registrationInfo -> registrationInfo.nodeId() + "-" + registrationInfo.seq();
-  //private static final BiFunction<String, RegistrationInfo, String> fullPath = (address, registrationInfo) -> keyPath.apply(address) + ":" + valuePath.apply(registrationInfo);
-
   public SubsMapHelper( VertxInternal vertx, RedissonClient redisson,NodeSelector nodeSelector, String nodeId) {
     this.vertx = vertx;
     this.redisson = redisson;
