@@ -2,23 +2,23 @@
 <!-- http://www.slf4j.org/manual.html -->
 <configuration>
 
-	<appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
-		<filter class="ch.qos.logback.classic.filter.ThresholdFilter">
-			<level>DEBUG</level>
-		</filter>
-		<encoder> <!-- [%caller{1}] -->
-			<pattern><![CDATA[%d{HH:mm:ss.SSS} %-5level [%thread] [%C:%L,%M] %msg%n]]></pattern>
-			<charset>UTF-8</charset>
-		</encoder>
-	</appender>
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+      <level>DEBUG</level>
+    </filter>
+    <encoder> <!-- [%caller{1}] -->
+      <pattern><![CDATA[%d{HH:mm:ss.SSS} %-5level [%thread] [%C:%L,%M] %msg%n]]></pattern>
+      <charset>UTF-8</charset>
+    </encoder>
+  </appender>
 
-	<logger name="io.netty" level="WARN" />
-	<logger name="org.redisson" level="INFO" />
-	<logger name="io.vertx.core.eventbus.impl.clustered" level="ERROR" />
+  <logger name="io.netty" level="WARN" />
+  <logger name="org.redisson" level="INFO" />
+  <logger name="io.vertx.core.eventbus.impl.clustered" level="ERROR" />
 
-	<!-- *** -->
-	<root level="DEBUG">
-		<appender-ref ref="STDOUT" />
-	</root>
+  <!-- *** -->
+  <root level="DEBUG">
+    <appender-ref ref="STDOUT" />
+  </root>
 
 </configuration>

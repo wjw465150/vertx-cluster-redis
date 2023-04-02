@@ -17,39 +17,22 @@ package io.vertx.spi.cluster.redis.impl;
 
 import java.util.Collection;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 
 import org.redisson.api.RMap;
-import org.redisson.api.RedissonClient;
 
-import io.vertx.core.Vertx;
+import io.vertx.core.impl.VertxInternal;
 
 /**
  *
  * @author <a href="mailto:leo.tu.taipei@gmail.com">Leo Tu</a>
  */
-class RedisMap<K, V> implements Map<K, V> {
+public class RedisSyncMap<K, V> implements Map<K, V> {
 
-  protected final Vertx vertx;
-  protected final RMap<K, V> map;
-  protected final String name;
+  private final RMap<K, V>    map;
 
-  public RedisMap(Vertx vertx, RedissonClient redisson, String name) {
-    Objects.requireNonNull(redisson, "redisson");
-    Objects.requireNonNull(name, "name");
-    this.vertx = vertx;
-    this.name = name;
-    this.map = createMap(redisson, this.name);
-  }
-
-  /**
-   * Here you can customize(override method) a "Codec"
-   * 
-   * @see org.redisson.codec.JsonJacksonCodec
-   */
-  protected RMap<K, V> createMap(RedissonClient redisson, String name) {
-    return redisson.getMap(name);
+  public RedisSyncMap(RMap<K, V> map) {
+    this.map = map;
   }
 
   @Override
@@ -99,24 +82,17 @@ class RedisMap<K, V> implements Map<K, V> {
 
   @Override
   public Set<K> keySet() {
-    // "map.keySet()" <b>DOESN'T</b> fetch all of them as {@link #readAllKeySet()} does.
     return map.readAllKeySet();
   }
 
   @Override
   public Collection<V> values() {
-    // "map.values()" <b>DOESN'T</b> fetch all of them as {@link #readAllValues()} does.
     return map.readAllValues();
   }
 
   @Override
   public Set<Entry<K, V>> entrySet() {
-    // "map.entrySet()" <b>DOESN'T</b> fetch all of them as {@link #readAllEntrySet()} does.
     return map.readAllEntrySet();
   }
 
-  @Override
-  public String toString() {
-    return super.toString() + "{name=" + name + "}";
-  }
 }

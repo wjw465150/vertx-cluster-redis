@@ -21,6 +21,7 @@ import org.redisson.api.map.event.EntryEvent;
 import org.redisson.api.map.event.EntryExpiredListener;
 import org.redisson.api.map.event.EntryRemovedListener;
 import org.redisson.api.map.event.EntryUpdatedListener;
+import org.redisson.codec.JsonJacksonCodec;
 import org.redisson.config.Config;
 
 import io.vertx.core.Promise;
@@ -42,6 +43,7 @@ import io.vertx.spi.cluster.redis.impl.ConfigUtil;
 import io.vertx.spi.cluster.redis.impl.RedisAsyncMap;
 import io.vertx.spi.cluster.redis.impl.RedisCounter;
 import io.vertx.spi.cluster.redis.impl.RedisLock;
+import io.vertx.spi.cluster.redis.impl.RedisSyncMap;
 import io.vertx.spi.cluster.redis.impl.SubsMapHelper;
 
 public class RedisClusterManager implements ClusterManager, EntryCreatedListener<String, NodeInfo>, EntryUpdatedListener<String, NodeInfo>, EntryExpiredListener<String, NodeInfo>, EntryRemovedListener<String, NodeInfo> {
@@ -62,16 +64,16 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
   private final Map<String, NodeInfo> localNodeInfo = new ConcurrentHashMap<>();
 
   //目的是缓存已经创建的RedisLock,RedisCounter,AsyncMap,syncMapCache 为了提高速度
-  private final Map<String, RedisLock>      locksCache    = new ConcurrentHashMap<>();
-  private final Map<String, RedisCounter>   countersCache = new ConcurrentHashMap<>();
-  private final Map<String, AsyncMap<?, ?>> asyncMapCache = new ConcurrentHashMap<>();
-  private final Map<String, Map<?, ?>>      syncMapCache  = new ConcurrentHashMap<>();
+  private final Map<String, RedisLock>          locksCache    = new ConcurrentHashMap<>();
+  private final Map<String, RedisCounter>       countersCache = new ConcurrentHashMap<>();
+  private final Map<String, AsyncMap<?, ?>>     asyncMapCache = new ConcurrentHashMap<>();
+  private final Map<String, RedisSyncMap<?, ?>> syncMapCache  = new ConcurrentHashMap<>();
 
   private JsonObject conf = new JsonObject();
 
-  private static final String VERTX_LOCKS    = "__vertx:locks:";
-  private static final String VERTX_COUNTERS = "__vertx:counters:";
-  private static final String VERTX_CLUSTER_NODES  = "__vertx:cluster:nodes";
+  private static final String VERTX_LOCKS         = "__vertx:locks:";
+  private static final String VERTX_COUNTERS      = "__vertx:counters:";
+  private static final String VERTX_CLUSTER_NODES = "__vertx:cluster:nodes";
 
   private static final String VERTX_ASYNCMAPS = "__vertx:asyncmaps:";
   private static final String VERTX_SYNCMAPS  = "__vertx:syncmaps:";
@@ -135,7 +137,7 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
   @Override
   public <K, V> Map<K, V> getSyncMap(String name) {
     @SuppressWarnings("unchecked")
-    Map<K, V> map = (Map<K, V>) syncMapCache.computeIfAbsent(name, k -> redisson.getMapCache(VERTX_SYNCMAPS + name));
+    RedisSyncMap<K, V> map = (RedisSyncMap<K, V>) syncMapCache.computeIfAbsent(name, k -> new RedisSyncMap<>(redisson.getMapCache(VERTX_SYNCMAPS + name)));
     return map;
   }
 
@@ -219,7 +221,7 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
   }
 
   private void addLocalNodeId() throws VertxException {
-    clusterNodes = redisson.getMapCache(VERTX_CLUSTER_NODES);
+    clusterNodes = redisson.getMapCache(VERTX_CLUSTER_NODES,JsonJacksonCodec.INSTANCE);
     clusterNodes.addListener(this);
     try {
       //Join to the cluster

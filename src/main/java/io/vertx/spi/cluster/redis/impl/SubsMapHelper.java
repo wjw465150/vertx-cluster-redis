@@ -15,6 +15,7 @@ import org.redisson.api.map.event.EntryEvent;
 import org.redisson.api.map.event.EntryExpiredListener;
 import org.redisson.api.map.event.EntryRemovedListener;
 import org.redisson.api.map.event.EntryUpdatedListener;
+import org.redisson.codec.JsonJacksonCodec;
 
 import io.vertx.core.Promise;
 import io.vertx.core.impl.VertxInternal;
@@ -41,7 +42,7 @@ public class SubsMapHelper implements EntryCreatedListener<String, RegistrationI
   public SubsMapHelper( VertxInternal vertx, RedissonClient redisson,NodeSelector nodeSelector, String nodeId) {
     this.vertx = vertx;
     this.redisson = redisson;
-    this.treeCache = redisson.getMapCache(VERTX_SUBS_NAME);
+    this.treeCache = redisson.getMapCache(VERTX_SUBS_NAME,JsonJacksonCodec.INSTANCE);
     this.treeCache.addListener(this);
     
     this.nodeSelector = nodeSelector;
