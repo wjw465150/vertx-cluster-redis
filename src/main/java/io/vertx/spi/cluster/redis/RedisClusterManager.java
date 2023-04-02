@@ -13,7 +13,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import org.redisson.Redisson;
-import org.redisson.api.RAtomicLong;
 import org.redisson.api.RLock;
 import org.redisson.api.RMapCache;
 import org.redisson.api.RedissonClient;
@@ -54,26 +53,28 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
   private NodeListener                nodeListener;
   private RMapCache<String, NodeInfo> clusterNodes;
   private volatile boolean            active;
-  private volatile boolean            joined;
 
-  private String                            nodeId;
-  private NodeInfo                          nodeInfo;
-  private RedissonClient                    redisson;
-  private boolean                           customRedisCluster;
-  private SubsMapHelper                     subsMapHelper;
-  private final Map<String, NodeInfo>       localNodeInfo = new ConcurrentHashMap<>();
-  private final Map<String, RedisLock>      locks         = new ConcurrentHashMap<>();
-  private final Map<String, AsyncMap<?, ?>> asyncMapCache = new ConcurrentHashMap<>(); //目的是缓存已经创建的AsyncMap,为了提高速度
-  private final Map<String, Map<?, ?>>      mapCache      = new ConcurrentHashMap<>(); //目的是缓存已经创建的Map,为了提高速度
+  private String                      nodeId;
+  private NodeInfo                    nodeInfo;
+  private RedissonClient              redisson;
+  private boolean                     customRedisCluster;
+  private SubsMapHelper               subsMapHelper;
+  private final Map<String, NodeInfo> localNodeInfo = new ConcurrentHashMap<>();
+
+  //目的是缓存已经创建的RedisLock,RedisCounter,AsyncMap,syncMapCache 为了提高速度
+  private final Map<String, RedisLock>      locksCache    = new ConcurrentHashMap<>();
+  private final Map<String, RedisCounter>   countersCache = new ConcurrentHashMap<>();
+  private final Map<String, AsyncMap<?, ?>> asyncMapCache = new ConcurrentHashMap<>();
+  private final Map<String, Map<?, ?>>      syncMapCache  = new ConcurrentHashMap<>();
 
   private JsonObject conf = new JsonObject();
 
-  private static final String CLUSTER_LOCKS    = "__vertx:locks:";
-  private static final String CLUSTER_COUNTERS = "__vertx:counters:";
-  private static final String CLUSTER_NODES    = "__vertx:cluster:nodes:";
+  private static final String VERTX_LOCKS    = "__vertx:locks:";
+  private static final String VERTX_COUNTERS = "__vertx:counters:";
+  private static final String VERTX_CLUSTER_NODES  = "__vertx:cluster:nodes";
 
-  private static final String CLUSTER_ASYNC_MAP_NAME = "__vertx:asyncmaps:";
-  private static final String CLUSTER_SYNC_MAP_NAME  = "__vertx:syncmaps:";
+  private static final String VERTX_ASYNCMAPS = "__vertx:asyncmaps:";
+  private static final String VERTX_SYNCMAPS  = "__vertx:syncmaps:";
 
   private ExecutorService lockReleaseExec;
 
@@ -81,24 +82,27 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
    * Constructor - gets config from classpath
    */
   public RedisClusterManager() throws IOException {
-    this((String) null);
-  }
-
-  public RedisClusterManager(String resourceLocation) throws IOException {
-    conf = ConfigUtil.loadConfig(resourceLocation);
-
-    this.nodeId = UUID.randomUUID().toString();
+    conf = ConfigUtil.loadConfig(null);
   }
 
   public RedisClusterManager(RedissonClient redisson) {
     this(redisson, UUID.randomUUID().toString());
   }
 
+  public RedisClusterManager(String resourceLocation) throws IOException {
+    conf = ConfigUtil.loadConfig(resourceLocation);
+  }
+
   public RedisClusterManager(RedissonClient redisson, String nodeId) {
     Objects.requireNonNull(redisson, "redisson");
+    Objects.requireNonNull(nodeId, "The nodeId cannot be null.");
     this.redisson = redisson;
     this.nodeId = nodeId;
     this.customRedisCluster = true;
+  }
+
+  public RedisClusterManager(JsonObject config) {
+    this.conf = config;
   }
 
   public void setConfig(JsonObject conf) {
@@ -109,6 +113,10 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
     return conf;
   }
 
+  public RedissonClient getRedissonClient() {
+    return this.redisson;
+  }
+
   @Override
   public void init(Vertx vertx, NodeSelector nodeSelector) {
     this.vertx = (VertxInternal) vertx;
@@ -117,17 +125,23 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
 
   @Override
   public <K, V> void getAsyncMap(String name, Promise<AsyncMap<K, V>> promise) {
-    promise.complete(new RedisAsyncMap<>(vertx, redisson.getMapCache(CLUSTER_ASYNC_MAP_NAME + name)));
+    vertx.executeBlocking(prom -> {
+      @SuppressWarnings("unchecked")
+      AsyncMap<K, V> zkAsyncMap = (AsyncMap<K, V>) asyncMapCache.computeIfAbsent(name, k -> new RedisAsyncMap<>(vertx, redisson.getMapCache(VERTX_ASYNCMAPS + name)));
+      prom.complete(zkAsyncMap);
+    }, promise);
   }
 
   @Override
   public <K, V> Map<K, V> getSyncMap(String name) {
-    return redisson.getMap(CLUSTER_SYNC_MAP_NAME + name);
+    @SuppressWarnings("unchecked")
+    Map<K, V> map = (Map<K, V>) syncMapCache.computeIfAbsent(name, k -> redisson.getMapCache(VERTX_SYNCMAPS + name));
+    return map;
   }
 
   @Override
   public void getLockWithTimeout(String name, long timeout, Promise<Lock> promise) {
-    RedisLock lock = locks.get(CLUSTER_LOCKS + name);
+    RedisLock lock = locksCache.get(VERTX_LOCKS + name);
     if (lock != null) {
       promise.complete(lock);
       return;
@@ -140,7 +154,7 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
         log.warn(MessageFormat.format("nodeId: {0}, lock name: {1}, timeout: {2}", nodeId, name, timeout), e);
         promise.fail(e);
       } else {
-        locks.putIfAbsent(name, newLock);
+        locksCache.putIfAbsent(name, newLock);
         promise.complete(newLock);
       }
     });
@@ -148,13 +162,10 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
 
   @Override
   public void getCounter(String name, Promise<Counter> promise) {
-    try {
-      RAtomicLong counter = redisson.getAtomicLong(CLUSTER_COUNTERS + name);
-      promise.complete(new RedisCounter(vertx, counter));
-    } catch (Exception e) {
-      log.warn(MessageFormat.format("nodeId: {0}, counter name: {1}", nodeId, name), e);
-      promise.fail(e);
-    }
+    vertx.executeBlocking(prom -> {
+      RedisCounter counter = countersCache.computeIfAbsent(name, k -> new RedisCounter(vertx, redisson.getAtomicLong(VERTX_COUNTERS + name)));
+      promise.complete(counter);
+    }, promise);
   }
 
   @Override
@@ -208,12 +219,11 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
   }
 
   private void addLocalNodeId() throws VertxException {
-    clusterNodes = redisson.getMapCache(CLUSTER_NODES);
+    clusterNodes = redisson.getMapCache(VERTX_CLUSTER_NODES);
     clusterNodes.addListener(this);
     try {
       //Join to the cluster
       createThisNode();
-      joined = true;
       subsMapHelper = new SubsMapHelper(vertx, redisson, nodeSelector, nodeId);
     } catch (Exception e) {
       throw new VertxException(e);
@@ -267,11 +277,9 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
       // cluster, typically, memberRemoved and memberAdded
       synchronized (RedisClusterManager.this) {
         if (active) {
+          active = false;
+          lockReleaseExec.shutdown();
           try {
-            active = false;
-            joined = false;
-            lockReleaseExec.shutdown();
-
             clusterNodes.remove(nodeId);
             subsMapHelper.close();
             if (!customRedisCluster) {
@@ -280,10 +288,13 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
             }
           } catch (Exception ex) {
             prom.fail(ex);
+          } finally {
+            prom.complete();
           }
+        } else {
+          prom.complete();
         }
       }
-      prom.complete();
     }, promise);
   }
 
