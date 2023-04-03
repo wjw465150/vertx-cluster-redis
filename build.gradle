@@ -10,8 +10,8 @@ version = "4.4.0"
 
 description = """Vert.x Redis Cluster Manager"""
 
-sourceCompatibility = '11'
-targetCompatibility = '11'
+sourceCompatibility = '1.8'
+targetCompatibility = '1.8'
 [compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
 
 ext {
@@ -39,20 +39,6 @@ repositories {
 configurations {
   provided
   optional 
-}
-
-afterEvaluate {
-  publishing {
-    publications {
-      // Creates a Maven publication called "release".
-      release(MavenPublication) {
-        from components.release
-        groupId = 'com.github.wjw465150'
-        artifactId = 'vertx-cluster-redis'
-        version = '4.4.0'
-      }
-    }
-  }
 }
 
 dependencies {
@@ -96,6 +82,18 @@ dependencies {
   testImplementation "com.jayway.awaitility:awaitility:1.7.0"
 }
 
+java {
+  withSourcesJar()
+  withJavadocJar()
+}
+
+publishing {
+  publications {
+    maven(MavenPublication) {
+      from components.java
+    }
+  }
+}
 
 test {
   useJUnitPlatform()
