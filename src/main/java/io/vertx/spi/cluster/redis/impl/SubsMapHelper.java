@@ -1,5 +1,6 @@
 package io.vertx.spi.cluster.redis.impl;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -54,6 +55,7 @@ public class SubsMapHelper
   public void updateSubsEntryExpiration(long ttl, TimeUnit ttlUnit) {
     ownSubs.keySet().stream().forEach((key) -> {
       treeCache.updateEntryExpiration(key, ttl, ttlUnit, 0, TimeUnit.SECONDS);
+      treeCache.expire(Duration.ofSeconds(ttl));
     });
   }
   

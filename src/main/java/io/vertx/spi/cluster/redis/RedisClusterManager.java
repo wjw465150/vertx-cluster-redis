@@ -2,6 +2,7 @@ package io.vertx.spi.cluster.redis;
 
 import java.io.IOException;
 import java.text.MessageFormat;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -231,6 +232,7 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
       nodesTtlScheduler.scheduleAtFixedRate(() -> {
         if (nodeId != null) {
           clusterNodes.updateEntryExpiration(nodeId, ENTRY_TTL, TimeUnit.SECONDS, 0, TimeUnit.SECONDS);
+          clusterNodes.expire(Duration.ofSeconds(ENTRY_TTL));
         }
 
         if (subsMapHelper != null) {
