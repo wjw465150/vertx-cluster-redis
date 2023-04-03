@@ -1,6 +1,8 @@
+//@wjw_note: 打包: gradlew clean build -x test
 plugins {
   id 'eclipse'
   id 'java-library'
+  id 'maven-publish'
 }
 
 group = "com.github.wjw465150"
@@ -37,6 +39,20 @@ repositories {
 configurations {
   provided
   optional 
+}
+
+afterEvaluate {
+  publishing {
+    publications {
+      // Creates a Maven publication called "release".
+      release(MavenPublication) {
+        from components.release
+        groupId = 'com.github.wjw465150'
+        artifactId = 'vertx-cluster-redis'
+        version = '4.4.0'
+      }
+    }
+  }
 }
 
 dependencies {
