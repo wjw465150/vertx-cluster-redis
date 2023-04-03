@@ -1,4 +1,7 @@
 //@wjw_note: 打包: gradlew clean build -x test
+//@wjw_note: 发布到本地仓库: gradlew -Pgroup=com.github.wjw465150 -Pversion=4.4.0 publishToMavenLocal
+//@wjw_note: 发布到中央仓库: gradlew -x test publish -Dorg.gradle.internal.http.socketTimeout=200000 -Dorg.gradle.internal.http.connectionTimeout=200000
+//           然后登录https://oss.sonatype.org/#stagingRepositories来查看,你的提交在未处理前，是`open`状态，然后点击`Close`按钮;然后等一会点击`Release`来发布
 plugins {
   id 'eclipse'
   id 'java-library'
@@ -12,7 +15,7 @@ description = """Vert.x Redis Cluster Manager"""
 
 sourceCompatibility = '1.8'
 targetCompatibility = '1.8'
-[compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
+[compileJava, compileTestJava, javadoc]*.options*.encoding = 'UTF-8'
 
 ext {
   vertx = [version : "4.4.0"]
