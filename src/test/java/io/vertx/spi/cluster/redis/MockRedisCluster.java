@@ -5,14 +5,12 @@
  */
 package io.vertx.spi.cluster.redis;
 
-import io.vertx.core.json.JsonObject;
-import io.vertx.core.spi.cluster.ClusterManager;
-import io.vertx.spi.cluster.redis.impl.ConfigUtil;
-
 import java.util.ArrayList;
 import java.util.List;
 
-import org.redisson.api.RedissonClient;
+import io.vertx.core.json.JsonObject;
+import io.vertx.core.spi.cluster.ClusterManager;
+import io.vertx.spi.cluster.redis.impl.ConfigUtil;
 
 /**
  * Created by Stream.Liu
@@ -27,8 +25,6 @@ public class MockRedisCluster {
     JsonObject config = ConfigUtil.loadConfig("classpath:redis.json");
     return config;
   }
-
-  public RedissonClient redisson;
 
   public void stop() {
     try {

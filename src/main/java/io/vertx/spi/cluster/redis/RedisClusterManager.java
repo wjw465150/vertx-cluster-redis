@@ -7,8 +7,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -61,7 +61,6 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
   private RedissonClient              redisson;
   private boolean                     customRedisCluster;
   private SubsMapHelper               subsMapHelper;
-  private final Map<String, NodeInfo> localNodeInfo = new ConcurrentHashMap<>();
 
   //目的是缓存已经创建的RedisLock,RedisCounter,AsyncMap,syncMapCache 为了提高速度
   private final Map<String, RedisLock>          locksCache    = new ConcurrentHashMap<>();
@@ -78,7 +77,8 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
   private static final String VERTX_ASYNCMAPS = "__vertx:asyncmaps:";
   private static final String VERTX_SYNCMAPS  = "__vertx:syncmaps:";
 
-  private ExecutorService lockReleaseExec;
+  private static final int ENTRY_TTL = 10;
+  private final ScheduledExecutorService nodesTtlScheduler = Executors.newScheduledThreadPool(1);
 
   /**
    * Constructor - gets config from classpath
@@ -197,8 +197,7 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
       this.nodeInfo = nodeInfo;
     }
     vertx.executeBlocking(prom -> {
-      localNodeInfo.put(nodeId, nodeInfo);
-      clusterNodes.put(nodeId, nodeInfo);
+      clusterNodes.put(nodeId, nodeInfo, ENTRY_TTL, TimeUnit.SECONDS);
       prom.complete();
     }, false, promise);
   }
@@ -224,17 +223,22 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
     clusterNodes = redisson.getMapCache(VERTX_CLUSTER_NODES, JsonJacksonCodec.INSTANCE);
     clusterNodes.addListener(this);
     try {
-      //Join to the cluster
-      createThisNode();
+      if (nodeInfo != null) {
+        clusterNodes.put(nodeId, nodeInfo, ENTRY_TTL, TimeUnit.SECONDS);
+      }
       subsMapHelper = new SubsMapHelper(vertx, redisson, nodeSelector, nodeId);
+
+      nodesTtlScheduler.scheduleAtFixedRate(() -> {
+        if (nodeId != null) {
+          clusterNodes.updateEntryExpiration(nodeId, ENTRY_TTL, TimeUnit.SECONDS, 0, TimeUnit.SECONDS);
+        }
+
+        if (subsMapHelper != null) {
+          subsMapHelper.updateSubsEntryExpiration(ENTRY_TTL, TimeUnit.SECONDS);
+        }
+      }, 500, 500, TimeUnit.MILLISECONDS);
     } catch (Exception e) {
       throw new VertxException(e);
-    }
-  }
-
-  private void createThisNode() throws Exception {
-    if (nodeInfo != null) {
-      clusterNodes.put(nodeId, nodeInfo);
     }
   }
 
@@ -243,7 +247,6 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
     vertx.executeBlocking(prom -> {
       if (!active) {
         active = true;
-        lockReleaseExec = Executors.newCachedThreadPool(r -> new Thread(r, "vertx-redis-service-release-lock-thread"));
 
         //The redis instance has been passed using the constructor.
         if (customRedisCluster) {
@@ -282,10 +285,12 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
       synchronized (RedisClusterManager.this) {
         if (active) {
           active = false;
-          lockReleaseExec.shutdown();
+          nodesTtlScheduler.shutdown();
+
           try {
             clusterNodes.remove(nodeId);
             subsMapHelper.close();
+            subsMapHelper = null;
             if (!customRedisCluster) {
               redisson.shutdown();
               redisson = null;

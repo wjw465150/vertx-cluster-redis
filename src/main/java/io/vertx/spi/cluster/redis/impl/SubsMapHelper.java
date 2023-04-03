@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
 
 import org.redisson.api.RMapCache;
 import org.redisson.api.RedissonClient;
@@ -25,35 +26,41 @@ import io.vertx.core.spi.cluster.NodeSelector;
 import io.vertx.core.spi.cluster.RegistrationInfo;
 import io.vertx.core.spi.cluster.RegistrationUpdateEvent;
 
-public class SubsMapHelper implements EntryCreatedListener<String, RegistrationInfo>, EntryUpdatedListener<String, RegistrationInfo>,EntryExpiredListener<String, RegistrationInfo>,EntryRemovedListener<String, RegistrationInfo> {
+public class SubsMapHelper
+    implements EntryCreatedListener<String, RegistrationInfo>, EntryUpdatedListener<String, RegistrationInfo>, EntryExpiredListener<String, RegistrationInfo>, EntryRemovedListener<String, RegistrationInfo> {
   private static final Logger log = LoggerFactory.getLogger(SubsMapHelper.class);
 
-  private final RedissonClient redisson;
-  private final RMapCache<String, Set<RegistrationInfo>> treeCache;
-  private final VertxInternal vertx;
-  private final NodeSelector                          nodeSelector;
-  private final String nodeId;
-  private final ConcurrentMap<String, Set<RegistrationInfo>> ownSubs = new ConcurrentHashMap<>();
+  private final RedissonClient                               redisson;
+  private final RMapCache<String, Set<RegistrationInfo>>     treeCache;
+  private final VertxInternal                                vertx;
+  private final NodeSelector                                 nodeSelector;
+  private final String                                       nodeId;
+  private final ConcurrentMap<String, Set<RegistrationInfo>> ownSubs   = new ConcurrentHashMap<>();
   private final ConcurrentMap<String, Set<RegistrationInfo>> localSubs = new ConcurrentHashMap<>();
 
-  
   private static final String VERTX_SUBS_NAME = "__vertx:subs";
-  
-  public SubsMapHelper( VertxInternal vertx, RedissonClient redisson,NodeSelector nodeSelector, String nodeId) {
+
+  public SubsMapHelper(VertxInternal vertx, RedissonClient redisson, NodeSelector nodeSelector, String nodeId) {
     this.vertx = vertx;
     this.redisson = redisson;
-    this.treeCache = redisson.getMapCache(VERTX_SUBS_NAME,JsonJacksonCodec.INSTANCE);
+    this.treeCache = redisson.getMapCache(VERTX_SUBS_NAME, JsonJacksonCodec.INSTANCE);
     this.treeCache.addListener(this);
-    
+
     this.nodeSelector = nodeSelector;
     this.nodeId = nodeId;
 
   }
 
+  public void updateSubsEntryExpiration(long ttl, TimeUnit ttlUnit) {
+    ownSubs.keySet().stream().forEach((key) -> {
+      treeCache.updateEntryExpiration(key, ttl, ttlUnit, 0, TimeUnit.SECONDS);
+    });
+  }
+  
   public void close() {
     treeCache.destroy();
   }
-  
+
   public void put(String address, RegistrationInfo registrationInfo, Promise<Void> promise) {
     if (registrationInfo.localOnly()) {
       localSubs.compute(address, (add, curr) -> addToSet(registrationInfo, curr));
@@ -63,8 +70,8 @@ public class SubsMapHelper implements EntryCreatedListener<String, RegistrationI
       try {
         vertx.runOnContext(aVoid -> {
           Set<RegistrationInfo> registrationInfoSet = ownSubs.compute(address, (add, currSet) -> addToSet(registrationInfo, currSet));
-          
-          treeCache.put(address, registrationInfoSet);
+
+          treeCache.put(address, registrationInfoSet, 10, TimeUnit.SECONDS);
           promise.complete();
         });
       } catch (Exception e) {
@@ -81,9 +88,12 @@ public class SubsMapHelper implements EntryCreatedListener<String, RegistrationI
 
   public List<RegistrationInfo> get(String address) {
     Set<RegistrationInfo> remote = treeCache.get(address);
-    
+    if (remote == null) {
+      remote = Collections.emptySet();
+    }
+
     List<RegistrationInfo> list;
-    int size;
+    int                    size;
     size = remote.size();
     Set<RegistrationInfo> local = localSubs.get(address);
     if (local != null) {
@@ -105,7 +115,7 @@ public class SubsMapHelper implements EntryCreatedListener<String, RegistrationI
     }
     return list;
   }
-  
+
   public void remove(String address, RegistrationInfo registrationInfo, Promise<Void> promise) {
     try {
       if (registrationInfo.localOnly()) {
@@ -116,10 +126,10 @@ public class SubsMapHelper implements EntryCreatedListener<String, RegistrationI
         vertx.runOnContext(aVoid -> {
           Set<RegistrationInfo> registrationInfoSet = ownSubs.computeIfPresent(address, (add, curr) -> removeFromSet(registrationInfo, curr));
 
-          if(registrationInfoSet == null) {
+          if (registrationInfoSet == null) {
             treeCache.remove(address);
           } else {
-            treeCache.put(address,registrationInfoSet);
+            treeCache.put(address, registrationInfoSet, 10, TimeUnit.SECONDS);
           }
           promise.complete();
         });
@@ -154,10 +164,10 @@ public class SubsMapHelper implements EntryCreatedListener<String, RegistrationI
   public void onRemoved(EntryEvent<String, RegistrationInfo> event) {
     this.onEntryEvent(event);
   }
-  
+
   private void onEntryEvent(EntryEvent<String, RegistrationInfo> event) {
     String address = event.getKey();
-    vertx.<List<RegistrationInfo>>executeBlocking(prom -> prom.complete(this.get(address)), false, ar -> {
+    vertx.<List<RegistrationInfo>> executeBlocking(prom -> prom.complete(this.get(address)), false, ar -> {
       if (ar.succeeded()) {
         nodeSelector.registrationsUpdated(new RegistrationUpdateEvent(address, ar.result()));
       } else {
