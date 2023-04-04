@@ -1,4 +1,14 @@
+pluginManagement {
+  repositories {
+    maven {
+      url 'https://maven.aliyun.com/repository/gradle-plugin'
+    }
+    gradlePluginPortal()
+  }
+}
+ 
 rootProject.name = 'vertx-cluster-redis'
+
 if (!JavaVersion.current().java8Compatible) {
   throw new IllegalStateException('''vertx-cluster-redis :
                                     |  This needs Java 8,

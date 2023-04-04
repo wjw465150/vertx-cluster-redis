@@ -6,12 +6,20 @@ This is a cluster manager implementation for Vert.x that uses [Redisson](https:/
 
 It implements interfaces of vert.x cluster totally. So you can using it to instead of vertx-hazelcast if you want. This implementation is packaged inside:
 
+- Maven (in your `pom.xml` file):
 ```xml
 <dependency>
-<groupId>com.github.wjw465150</groupId>
-<artifactId>vertx-cluster-redis</artifactId>
-<version>4.4.0</version>
+  <groupId>com.github.wjw465150</groupId>
+  <artifactId>vertx-cluster-redis</artifactId>
+  <version>4.4.1</version>
 </dependency>
+```
+- Gradle (in your `build.gradle` file)：
+
+```groovy
+dependencies {
+ implementation 'com.github.wjw465150:vertx-cluster-redis:4.4.1'
+}
 ```
 
 In Vert.x a cluster manager is used for various functions including:
@@ -30,7 +38,7 @@ We are using [Redisson](https://github.com/redisson/redisson/) framework,you can
 
 ## Using this cluster manager
 
-If you are using Vert.x from the command line, the jar corresponding to this cluster manager (it will be named `vertx-cluster-redis-4.4.0.jar`  should be in the `lib` directory of the Vert.x installation.
+If you are using Vert.x from the command line, the jar corresponding to this cluster manager (it will be named `vertx-cluster-redis-4.4.1.jar`  should be in the `lib` directory of the Vert.x installation.
 
 If you want clustering with this cluster manager in your Vert.x Maven or Gradle project then just add a dependency to the artifact: `com.github.wjw465150:vertx-cluster-redis:${version}` in your project.
 
