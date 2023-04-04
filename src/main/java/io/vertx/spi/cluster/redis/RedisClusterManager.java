@@ -198,7 +198,7 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
       this.nodeInfo = nodeInfo;
     }
     vertx.executeBlocking(prom -> {
-      clusterNodes.put(nodeId, nodeInfo, ENTRY_TTL, TimeUnit.SECONDS);
+      clusterNodes.fastPut(nodeId, nodeInfo, ENTRY_TTL, TimeUnit.SECONDS);
       prom.complete();
     }, false, promise);
   }
@@ -225,7 +225,7 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
     clusterNodes.addListener(this);
     try {
       if (nodeInfo != null) {
-        clusterNodes.put(nodeId, nodeInfo, ENTRY_TTL, TimeUnit.SECONDS);
+        clusterNodes.fastPut(nodeId, nodeInfo, ENTRY_TTL, TimeUnit.SECONDS);
       }
       subsMapHelper = new SubsMapHelper(vertx, redisson, nodeSelector, nodeId);
 

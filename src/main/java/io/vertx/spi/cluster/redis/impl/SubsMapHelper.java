@@ -32,7 +32,7 @@ public class SubsMapHelper
   private static final Logger log = LoggerFactory.getLogger(SubsMapHelper.class);
 
   private final RedissonClient                               redisson;
-  private final RMapCache<String, Set<RegistrationInfo>>     treeCache;
+  private final RMapCache<String, Set<RegistrationInfo>>     subsCache;
   private final VertxInternal                                vertx;
   private final NodeSelector                                 nodeSelector;
   private final String                                       nodeId;
@@ -44,8 +44,8 @@ public class SubsMapHelper
   public SubsMapHelper(VertxInternal vertx, RedissonClient redisson, NodeSelector nodeSelector, String nodeId) {
     this.vertx = vertx;
     this.redisson = redisson;
-    this.treeCache = redisson.getMapCache(VERTX_SUBS_NAME, JsonJacksonCodec.INSTANCE);
-    this.treeCache.addListener(this);
+    this.subsCache = redisson.getMapCache(VERTX_SUBS_NAME, JsonJacksonCodec.INSTANCE);
+    this.subsCache.addListener(this);
 
     this.nodeSelector = nodeSelector;
     this.nodeId = nodeId;
@@ -53,14 +53,14 @@ public class SubsMapHelper
   }
 
   public void updateSubsEntryExpiration(long ttl, TimeUnit ttlUnit) {
-    ownSubs.keySet().stream().forEach((key) -> {
-      treeCache.updateEntryExpiration(key, ttl, ttlUnit, 0, TimeUnit.SECONDS);
-      treeCache.expire(Duration.ofSeconds(ttl));
+    subsCache.expire(Duration.ofSeconds(ttl));
+    ownSubs.keySet().stream().forEach(key -> {
+      subsCache.updateEntryExpiration(key, ttl, ttlUnit, 0, TimeUnit.SECONDS);
     });
   }
   
   public void close() {
-    treeCache.destroy();
+    subsCache.destroy();
   }
 
   public void put(String address, RegistrationInfo registrationInfo, Promise<Void> promise) {
@@ -73,7 +73,7 @@ public class SubsMapHelper
         vertx.runOnContext(aVoid -> {
           Set<RegistrationInfo> registrationInfoSet = ownSubs.compute(address, (add, currSet) -> addToSet(registrationInfo, currSet));
 
-          treeCache.put(address, registrationInfoSet, 10, TimeUnit.SECONDS);
+          subsCache.fastPut(address, registrationInfoSet, 10, TimeUnit.SECONDS);
           promise.complete();
         });
       } catch (Exception e) {
@@ -89,7 +89,7 @@ public class SubsMapHelper
   }
 
   public List<RegistrationInfo> get(String address) {
-    Set<RegistrationInfo> remote = treeCache.get(address);
+    Set<RegistrationInfo> remote = subsCache.get(address);
     if (remote == null) {
       remote = Collections.emptySet();
     }
@@ -129,9 +129,9 @@ public class SubsMapHelper
           Set<RegistrationInfo> registrationInfoSet = ownSubs.computeIfPresent(address, (add, curr) -> removeFromSet(registrationInfo, curr));
 
           if (registrationInfoSet == null) {
-            treeCache.remove(address);
+            subsCache.remove(address);
           } else {
-            treeCache.put(address, registrationInfoSet, 10, TimeUnit.SECONDS);
+            subsCache.fastPut(address, registrationInfoSet, 10, TimeUnit.SECONDS);
           }
           promise.complete();
         });
