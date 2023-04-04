@@ -68,6 +68,7 @@ dependencies {
       classifier = 'tests'
     }
   }
+  testImplementation "io.vertx:vertx-web"
   testImplementation("io.vertx:vertx-web") {
     artifact {
       classifier = 'tests'

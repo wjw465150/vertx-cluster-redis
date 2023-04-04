@@ -21,8 +21,8 @@ public class ConsumerRoundRobinTest extends VertxTestBase {
   private static final String MESSAGE_ADDRESS = "consumerAddress";
 
   protected ClusterManager getClusterManager() {
-    MockRedisCluster zkCluster = new MockRedisCluster();
-    return zkCluster.getClusterManager();
+    MockRedisCluster redisCluster = new MockRedisCluster();
+    return redisCluster.getClusterManager();
   }
 
 

@@ -16,7 +16,7 @@ import io.vertx.spi.cluster.redis.MockRedisCluster;
 /**
  *
  */
-public class ZKClusteredAsyncMapTest extends ClusteredAsyncMapTest {
+public class RedisClusteredAsyncMapTest extends ClusteredAsyncMapTest {
 
   private final MockRedisCluster redisClustered = new MockRedisCluster();
 
