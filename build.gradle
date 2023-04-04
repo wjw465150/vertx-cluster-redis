@@ -6,25 +6,145 @@ plugins {
   id 'eclipse'
   id 'java-library'
   id 'maven-publish'
+  id 'signing' //使用signing plugin做数字签名
 }
+
+apply from: rootDir.canonicalPath + '/.gradle/publish.gradle'
+
+// jar包的名字
+archivesBaseName = 'vertx-cluster-redis'
 
 group = "com.github.wjw465150"
 version = "4.4.0"
-
-description = """Vert.x Redis Cluster Manager"""
 
 sourceCompatibility = '1.8'
 targetCompatibility = '1.8'
 [compileJava, compileTestJava, javadoc]*.options*.encoding = 'UTF-8'
 
+description = """Vert.x Redis Cluster Manager"""
+
 ext {
   vertx = [version : "4.4.0"]
   redisson = [version : "3.20.1"]
-  logback = [version : "1.2.3"]
-  fastjson2 = [version : "2.0.24"]  
-  caffeine = [version : "3.1.5"]
-  junitJupiter = [version : "5.7.0"]
   junit = [version : "4.13.1"]
+}
+
+compileJava {
+  options.encoding = 'UTF-8'
+  options.deprecation = true
+  options.compilerArgs += ["-parameters","-Xlint:deprecation"]
+  
+  doFirst {
+    println "options:"+options
+    println "options.compilerArgs:"+options.compilerArgs
+  }
+  
+}
+
+compileTestJava {
+  options.encoding = 'UTF-8'
+  options.deprecation = true
+  options.compilerArgs += ["-parameters","-Xlint:deprecation"]
+          
+  doFirst {
+    println "options:"+options
+    println "options.compilerArgs:"+options.compilerArgs
+  }
+  
+}
+
+jar {
+  manifest {
+    attributes 'Built-By': 'wjw465150@gmail.com',
+    'Build-Name': "${project.archivesBaseName}",
+    'Build-Version': "${project.version}",
+    'Build-URL': 'https://github.com/wjw465150/vertx-cluster-redis'
+  }
+  excludes = ['**/test/**']
+}
+
+java {
+  withJavadocJar()
+  withSourcesJar()
+}
+
+//publishing {  //test for https://jitpack.io/#wjw465150/vertx-cluster-redis
+//  publications {
+//    maven(MavenPublication) {
+//      from components.java
+//    }
+//  }
+//}
+
+publishing {
+  // 定义发布什么
+  publications {
+    mavenJava(MavenPublication) {
+      // groupId,artifactId,version，如果不定义，则会按照默认值执行
+      groupId = project.group  //Sonatype上的Issue里填写的`Group Id`,可以跟package路径完全不一样
+      artifactId = project.archivesBaseName
+      version = project.version
+ 
+      from components.java
+      versionMapping {  //为了解决: Gradle, SpringBoot, MavenPublish - Publication only contains dependencies and/or constraints without a version
+        usage('java-api') {
+          fromResolutionOf('runtimeClasspath')
+        }
+        usage('java-runtime') {
+          fromResolutionResult()
+        }
+      }
+      
+      pom {
+        // 构件名称
+        // 区别于artifactId，可以理解为artifactName
+        name = project.archivesBaseName
+        // 构件描述
+        description = 'This is a cluster manager implementation for Vert.x that uses Redis'
+        // 构件主页
+        url = 'https://github.com/wjw465150/vertx-cluster-redis'
+        // 许可证名称和地址
+        licenses {
+          license {
+            name = 'The Apache License, Version 2.0'
+            url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+            distribution = 'This is a cluster manager implementation for Vert.x that uses Redis'
+          }
+        }
+        // 开发者信息
+        developers {
+          developer {
+            id = 'wjw465150'
+            name = 'wjw465150'
+            email = 'wjw465150@gmail.com'
+          }
+        }
+        // 版本控制仓库地址
+        scm {
+          url = "https://github.com/wjw465150/vertx-cluster-redis"
+          connection = "https://github.com/wjw465150/vertx-cluster-redis.git"
+          developerConnection = "https://github.com/wjw465150/vertx-cluster-redis.git"
+        }
+      }
+    }
+  }
+ 
+  // 定义发布到哪里
+  repositories {
+    maven {
+      url "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
+      credentials {
+        // 这里就是之前在issues.sonatype.org注册的账号,这些敏感信息为了防止泄露,我放到了`.gradle/publish.gradle`目录下
+        username sonatypeUsername
+        password sonatypePassword
+      }
+    }
+  }
+}
+ 
+//为所有的jar包做数字签名
+signing {
+  sign publishing.publications.mavenJava
 }
 
 repositories {
@@ -53,11 +173,11 @@ dependencies {
     exclude group: 'io.netty'
     exclude group: 'org.slf4j'
   }
-  api 'org.slf4j:slf4j-api:1.7.32'
     
   provided "io.vertx:vertx-codegen"
   provided "io.vertx:vertx-docgen"
   
+  testImplementation 'org.slf4j:slf4j-api:1.7.32'
   testImplementation 'org.slf4j:slf4j-api:1.7.32'
   testImplementation 'ch.qos.logback:logback-core:1.2.10'
   testImplementation 'ch.qos.logback:logback-classic:1.2.10'
@@ -86,18 +206,7 @@ dependencies {
   testImplementation "com.jayway.awaitility:awaitility:1.7.0"
 }
 
-java {
-  withSourcesJar()
-  withJavadocJar()
-}
-
-publishing {
-  publications {
-    maven(MavenPublication) {
-      from components.java
-    }
-  }
-}
+compileJava.dependsOn(processResources)
 
 test {
   useJUnitPlatform()
