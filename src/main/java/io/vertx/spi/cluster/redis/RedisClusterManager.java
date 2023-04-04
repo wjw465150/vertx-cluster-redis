@@ -1,3 +1,8 @@
+/*
+ * author: @wjw
+ * date:   2023年4月4日 下午4:21:10
+ * note: 
+ */
 package io.vertx.spi.cluster.redis;
 
 import java.io.IOException;
@@ -57,11 +62,11 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
   private RMapCache<String, NodeInfo> clusterNodes;
   private volatile boolean            active;
 
-  private String                      nodeId;
-  private NodeInfo                    nodeInfo;
-  private RedissonClient              redisson;
-  private boolean                     customRedisCluster;
-  private SubsMapHelper               subsMapHelper;
+  private String         nodeId;
+  private NodeInfo       nodeInfo;
+  private RedissonClient redisson;
+  private boolean        customRedisCluster;
+  private SubsMapHelper  subsMapHelper;
 
   //目的是缓存已经创建的RedisLock,RedisCounter,AsyncMap,syncMapCache 为了提高速度
   private final Map<String, RedisLock>          locksCache    = new ConcurrentHashMap<>();
@@ -78,7 +83,7 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
   private static final String VERTX_ASYNCMAPS = "__vertx:asyncmaps:";
   private static final String VERTX_SYNCMAPS  = "__vertx:syncmaps:";
 
-  private static final int ENTRY_TTL = 10;
+  private static final int               ENTRY_TTL         = 10;
   private final ScheduledExecutorService nodesTtlScheduler = Executors.newScheduledThreadPool(1);
 
   /**
@@ -130,7 +135,7 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
   public <K, V> void getAsyncMap(String name, Promise<AsyncMap<K, V>> promise) {
     vertx.executeBlocking(prom -> {
       @SuppressWarnings("unchecked")
-      AsyncMap<K, V> zkAsyncMap = (AsyncMap<K, V>) asyncMapCache.computeIfAbsent(name, k -> new RedisAsyncMap<>(vertx, redisson.getMapCache(VERTX_ASYNCMAPS + name)));
+      AsyncMap<K, V> zkAsyncMap = (AsyncMap<K, V>) asyncMapCache.computeIfAbsent(name, k -> new RedisAsyncMap<>(vertx, redisson, VERTX_ASYNCMAPS + name));
       prom.complete(zkAsyncMap);
     }, promise);
   }
@@ -138,7 +143,7 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
   @Override
   public <K, V> Map<K, V> getSyncMap(String name) {
     @SuppressWarnings("unchecked")
-    RedisSyncMap<K, V> map = (RedisSyncMap<K, V>) syncMapCache.computeIfAbsent(name, k -> new RedisSyncMap<>(redisson.getMapCache(VERTX_SYNCMAPS + name)));
+    RedisSyncMap<K, V> map = (RedisSyncMap<K, V>) syncMapCache.computeIfAbsent(name, k -> new RedisSyncMap<>(redisson, VERTX_SYNCMAPS + name));
     return map;
   }
 

@@ -1,3 +1,8 @@
+/*
+ * author: @wjw
+ * date:   2023年4月4日 下午4:23:04
+ * note: 
+ */
 package io.vertx.spi.cluster.redis;
 
 import java.util.HashSet;
@@ -13,13 +18,11 @@ import io.vertx.core.VertxOptions;
 import io.vertx.core.spi.cluster.ClusterManager;
 import io.vertx.test.core.VertxTestBase;
 
-/**
- * Created by stream.
- */
 public class ConsumerRoundRobinTest extends VertxTestBase {
 
   private static final String MESSAGE_ADDRESS = "consumerAddress";
 
+  @Override
   protected ClusterManager getClusterManager() {
     MockRedisCluster redisCluster = new MockRedisCluster();
     return redisCluster.getClusterManager();

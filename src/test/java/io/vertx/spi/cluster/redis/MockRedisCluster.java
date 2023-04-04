@@ -12,9 +12,6 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.core.spi.cluster.ClusterManager;
 import io.vertx.spi.cluster.redis.impl.ConfigUtil;
 
-/**
- * Created by Stream.Liu
- */
 public class MockRedisCluster {
   private final List<RedisClusterManager> clusterManagers = new ArrayList<>();
 

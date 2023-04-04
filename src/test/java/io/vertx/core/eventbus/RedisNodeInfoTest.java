@@ -1,3 +1,8 @@
+/*
+ * author: @wjw
+ * date:   2023年4月4日 下午4:22:28
+ * note: 
+ */
 package io.vertx.core.eventbus;
 
 import io.vertx.core.spi.cluster.ClusterManager;

@@ -1,3 +1,8 @@
+/*
+ * author: @wjw
+ * date:   2023年4月4日 下午4:23:26
+ * note: 
+ */
 package io.vertx.spi.cluster.redis;
 
 import static org.junit.Assert.assertEquals;
@@ -10,7 +15,6 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
-import org.redisson.codec.JsonJacksonCodec;
 import org.redisson.config.Config;
 
 import io.vertx.core.json.JsonObject;
@@ -37,7 +41,7 @@ public class RedisSyncMapTest {
     String k = "myKey";
     String v = "myValue";
 
-    RedisSyncMap<String, String> syncMap = new RedisSyncMap<>(redisson.getMapCache("__vertx:syncmaps:" + "mapTest", JsonJacksonCodec.INSTANCE));
+    RedisSyncMap<String, String> syncMap = new RedisSyncMap<>(redisson,"__vertx:syncmaps:" + "mapTest");
 
     syncMap.put(k, v);
     assertFalse(syncMap.isEmpty());
