@@ -44,10 +44,16 @@ public class ProgrammaticRedisClusterManagerTest extends AsyncTestBase {
 
   @Test
   public void testProgrammaticSetConfig() throws Exception {
-    JsonObject config = redisCluster.getDefaultConfig();
+    JsonObject singleServerConfig = new JsonObject();
+    singleServerConfig.put("address", "redis://127.0.0.1:6379");
+    singleServerConfig.put("password", null);
+    
+    JsonObject redisConfig = new JsonObject();
+    redisConfig.put("singleServerConfig", singleServerConfig);
+    
     RedisClusterManager mgr = new RedisClusterManager();
-    mgr.setConfig(config);
-    testProgrammatic(mgr, config);
+    mgr.setConfig(redisConfig);
+    testProgrammatic(mgr, redisConfig);
   }
 
   @Test
