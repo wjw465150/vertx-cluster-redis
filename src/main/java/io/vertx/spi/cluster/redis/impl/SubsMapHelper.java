@@ -6,8 +6,9 @@
 package io.vertx.spi.cluster.redis.impl;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
-import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -17,13 +18,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 
-import org.redisson.api.RMapCache;
+import org.redisson.api.RMultimapCache;
 import org.redisson.api.RedissonClient;
-import org.redisson.api.map.event.EntryCreatedListener;
-import org.redisson.api.map.event.EntryEvent;
-import org.redisson.api.map.event.EntryExpiredListener;
-import org.redisson.api.map.event.EntryRemovedListener;
-import org.redisson.api.map.event.EntryUpdatedListener;
 import org.redisson.codec.JsonJacksonCodec;
 
 import io.vertx.core.impl.VertxInternal;
@@ -33,12 +29,11 @@ import io.vertx.core.spi.cluster.NodeSelector;
 import io.vertx.core.spi.cluster.RegistrationInfo;
 import io.vertx.core.spi.cluster.RegistrationUpdateEvent;
 
-public class SubsMapHelper
-    implements EntryCreatedListener<String, RegistrationInfo>, EntryUpdatedListener<String, RegistrationInfo>, EntryExpiredListener<String, RegistrationInfo>, EntryRemovedListener<String, RegistrationInfo> {
+public class SubsMapHelper {
   private static final Logger log = LoggerFactory.getLogger(SubsMapHelper.class);
 
   private final RedissonClient                               redisson;
-  private final RMapCache<String, Set<RegistrationInfo>>     subsCache;
+  private final RMultimapCache<String, RegistrationInfo>     subsCache;
   private final VertxInternal                                vertx;
   private final NodeSelector                                 nodeSelector;
   private final String                                       nodeId;
@@ -51,8 +46,7 @@ public class SubsMapHelper
   public SubsMapHelper(VertxInternal vertx, RedissonClient redisson, NodeSelector nodeSelector, String nodeId) {
     this.vertx = vertx;
     this.redisson = redisson;
-    this.subsCache = redisson.getMapCache(VERTX_SUBS_NAME, JsonJacksonCodec.INSTANCE);
-    this.subsCache.addListener(this);
+    this.subsCache = redisson.getSetMultimapCache(VERTX_SUBS_NAME, JsonJacksonCodec.INSTANCE);
     this.republishLock = redisson.getReadWriteLock(VERTX_SUBS_LOCKS);
 
     this.nodeSelector = nodeSelector;
@@ -61,20 +55,18 @@ public class SubsMapHelper
   }
 
   public void updateSubsEntryExpiration(long ttl, TimeUnit ttlUnit) {
-    Set<String> subsKeySet = subsCache.keySet();
-    if (!subsKeySet.isEmpty()) {
-      subsKeySet.stream().forEach(key -> {
-        try {
-          subsCache.updateEntryExpiration(key, ttl, ttlUnit, 0, TimeUnit.SECONDS);
-        } catch (Exception e) {
-          //e.printStackTrace();
-        }
-      });
+    try {
+      Iterator<String> subsKeySetIterator = subsCache.keySet().iterator();
+      while (subsKeySetIterator.hasNext()) {
+        subsCache.expireKey(subsKeySetIterator.next(), ttl, ttlUnit);
+      }
+    } catch (Exception e) {
+      //e.printStackTrace();
     }
   }
 
   public void close() {
-    subsCache.destroy();
+    //
   }
 
   public void put(String address, RegistrationInfo registrationInfo) {
@@ -83,19 +75,14 @@ public class SubsMapHelper
     try {
       if (registrationInfo.localOnly()) {
         localSubs.compute(address, (add, curr) -> addToSet(registrationInfo, curr));
-        fireRegistrationUpdateEvent(address);
       } else {
         try {
-          Set<RegistrationInfo> remoteRegistrationInfoSet = subsCache.get(address);
-          if (remoteRegistrationInfoSet == null) {
-            remoteRegistrationInfoSet = new HashSet<>();
-          }
-          remoteRegistrationInfoSet.add(registrationInfo);
-          subsCache.fastPut(address, remoteRegistrationInfoSet, 10, TimeUnit.SECONDS);
+          subsCache.put(address, registrationInfo);
         } catch (Exception e) {
           log.error(String.format("create subs address %s failed.", address), e);
         }
       }
+      nodeSelector.registrationsUpdated(new RegistrationUpdateEvent(address, this.get(address)));
     } finally {
       writeLock.unlock();
     }
@@ -111,13 +98,9 @@ public class SubsMapHelper
     Lock readLock = republishLock.readLock();
     readLock.lock();
     try {
-      Set<RegistrationInfo> remote = subsCache.get(address);
-      if (remote == null) {
-        remote = new HashSet<>();
-      }
-
-      List<RegistrationInfo> list;
-      int                    size;
+      List<RegistrationInfo>       list;
+      Collection<RegistrationInfo> remote = subsCache.get(address);
+      int                          size;
       size = remote.size();
       Set<RegistrationInfo> local = localSubs.get(address);
       if (local != null) {
@@ -149,19 +132,10 @@ public class SubsMapHelper
     try {
       if (registrationInfo.localOnly()) {
         localSubs.computeIfPresent(address, (add, curr) -> removeFromSet(registrationInfo, curr));
-        fireRegistrationUpdateEvent(address);
       } else {
-        Set<RegistrationInfo> remoteRegistrationInfoSet = subsCache.get(address);
-        if (remoteRegistrationInfoSet == null) {
-          remoteRegistrationInfoSet = new HashSet<>();
-        }
-        remoteRegistrationInfoSet.remove(registrationInfo);
-        if (remoteRegistrationInfoSet.isEmpty()) {
-          subsCache.fastRemove(address);
-        } else {
-          subsCache.fastPut(address, remoteRegistrationInfoSet, 10, TimeUnit.SECONDS);
-        }
+        subsCache.remove(address,registrationInfo);
       }
+      nodeSelector.registrationsUpdated(new RegistrationUpdateEvent(address, this.get(address)));
     } finally {
       writeLock.unlock();
     }
@@ -170,42 +144,6 @@ public class SubsMapHelper
   private Set<RegistrationInfo> removeFromSet(RegistrationInfo registrationInfo, Set<RegistrationInfo> curr) {
     curr.remove(registrationInfo);
     return curr.isEmpty() ? null : curr;
-  }
-
-  @Override
-  public void onCreated(EntryEvent<String, RegistrationInfo> event) {
-    this.onEntryEvent(event);
-  }
-
-  @Override
-  public void onUpdated(EntryEvent<String, RegistrationInfo> event) {
-    this.onEntryEvent(event);
-  }
-
-  @Override
-  public void onExpired(EntryEvent<String, RegistrationInfo> event) {
-    this.onEntryEvent(event);
-  }
-
-  @Override
-  public void onRemoved(EntryEvent<String, RegistrationInfo> event) {
-    this.onEntryEvent(event);
-  }
-
-  private void onEntryEvent(EntryEvent<String, RegistrationInfo> event) {
-    String address = event.getKey();
-    vertx.<List<RegistrationInfo>> executeBlocking(prom -> prom.complete(this.get(address)), false, ar -> {
-      if (ar.succeeded()) {
-        nodeSelector.registrationsUpdated(new RegistrationUpdateEvent(address, ar.result()));
-      } else {
-        log.trace("A failure occured while retrieving the updated registrations", ar.cause());
-        nodeSelector.registrationsUpdated(new RegistrationUpdateEvent(address, Collections.emptyList()));
-      }
-    });
-  }
-
-  private void fireRegistrationUpdateEvent(String address) {
-    nodeSelector.registrationsUpdated(new RegistrationUpdateEvent(address, this.get(address)));
   }
 
 }

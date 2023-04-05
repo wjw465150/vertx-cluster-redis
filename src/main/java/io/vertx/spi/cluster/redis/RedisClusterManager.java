@@ -7,7 +7,6 @@ package io.vertx.spi.cluster.redis;
 
 import java.io.IOException;
 import java.text.MessageFormat;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -204,7 +203,7 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
       this.nodeInfo = nodeInfo;
     }
     vertx.executeBlocking(prom -> {
-      clusterNodes.fastPut(nodeId, nodeInfo, ENTRY_TTL, TimeUnit.SECONDS);
+      clusterNodes.fastPut(nodeId, nodeInfo);
       prom.complete();
     }, false, promise);
   }
@@ -231,13 +230,16 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
     clusterNodes.addListener(this);
     try {
       if (nodeInfo != null) {
-        clusterNodes.fastPut(nodeId, nodeInfo, ENTRY_TTL, TimeUnit.SECONDS);
+        clusterNodes.fastPut(nodeId, nodeInfo);
       }
       subsMapHelper = new SubsMapHelper(vertx, redisson, nodeSelector, nodeId);
 
       nodesTtlScheduler.scheduleAtFixedRate(() -> {
         if (nodeId != null) {
-          clusterNodes.updateEntryExpiration(nodeId, ENTRY_TTL, TimeUnit.SECONDS, 0, TimeUnit.SECONDS);
+          try {
+            clusterNodes.updateEntryExpiration(nodeId, ENTRY_TTL, TimeUnit.SECONDS, 0, TimeUnit.SECONDS);
+          } catch (Exception e) {
+          }
         }
 
         if (subsMapHelper != null) {

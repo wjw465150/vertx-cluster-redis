@@ -15,7 +15,7 @@ apply from: rootDir.canonicalPath + '/.gradle/publish.gradle'
 archivesBaseName = 'vertx-cluster-redis'
 
 group = "com.github.wjw465150"
-version = "4.4.1.1"
+version = "4.4.1.2"
 
 sourceCompatibility = '1.8'
 targetCompatibility = '1.8'
