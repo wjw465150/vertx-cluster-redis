@@ -51,6 +51,7 @@ import io.vertx.spi.cluster.redis.impl.RedisCounter;
 import io.vertx.spi.cluster.redis.impl.RedisLock;
 import io.vertx.spi.cluster.redis.impl.RedisSyncMap;
 import io.vertx.spi.cluster.redis.impl.SubsMapHelper;
+import io.vertx.spi.cluster.redis.impl.SubsOpSerializer;
 
 public class RedisClusterManager implements ClusterManager, EntryCreatedListener<String, NodeInfo>, EntryUpdatedListener<String, NodeInfo>, EntryExpiredListener<String, NodeInfo>, EntryRemovedListener<String, NodeInfo> {
   private static final Logger log = LoggerFactory.getLogger(RedisClusterManager.class);
@@ -237,7 +238,6 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
       nodesTtlScheduler.scheduleAtFixedRate(() -> {
         if (nodeId != null) {
           clusterNodes.updateEntryExpiration(nodeId, ENTRY_TTL, TimeUnit.SECONDS, 0, TimeUnit.SECONDS);
-          clusterNodes.expire(Duration.ofSeconds(ENTRY_TTL));
         }
 
         if (subsMapHelper != null) {
@@ -321,12 +321,14 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
 
   @Override
   public void addRegistration(String address, RegistrationInfo registrationInfo, Promise<Void> promise) {
-    subsMapHelper.put(address, registrationInfo, promise);
+    SubsOpSerializer serializer = SubsOpSerializer.get(vertx.getOrCreateContext());
+    serializer.execute(subsMapHelper::put, address, registrationInfo, promise);
   }
 
   @Override
   public void removeRegistration(String address, RegistrationInfo registrationInfo, Promise<Void> promise) {
-    subsMapHelper.remove(address, registrationInfo, promise);
+    SubsOpSerializer serializer = SubsOpSerializer.get(vertx.getOrCreateContext());
+    serializer.execute(subsMapHelper::remove, address, registrationInfo, promise);
   }
 
   @Override

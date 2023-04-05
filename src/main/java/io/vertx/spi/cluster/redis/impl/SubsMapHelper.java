@@ -5,15 +5,17 @@
  */
 package io.vertx.spi.cluster.redis.impl;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
 
 import org.redisson.api.RMapCache;
 import org.redisson.api.RedissonClient;
@@ -24,7 +26,6 @@ import org.redisson.api.map.event.EntryRemovedListener;
 import org.redisson.api.map.event.EntryUpdatedListener;
 import org.redisson.codec.JsonJacksonCodec;
 
-import io.vertx.core.Promise;
 import io.vertx.core.impl.VertxInternal;
 import io.vertx.core.impl.logging.Logger;
 import io.vertx.core.impl.logging.LoggerFactory;
@@ -41,16 +42,18 @@ public class SubsMapHelper
   private final VertxInternal                                vertx;
   private final NodeSelector                                 nodeSelector;
   private final String                                       nodeId;
-  private final ConcurrentMap<String, Set<RegistrationInfo>> ownSubs   = new ConcurrentHashMap<>();
   private final ConcurrentMap<String, Set<RegistrationInfo>> localSubs = new ConcurrentHashMap<>();
+  private final ReadWriteLock                                republishLock;
 
-  private static final String VERTX_SUBS_NAME = "__vertx:subs";
+  private static final String VERTX_SUBS_NAME  = "__vertx:subs";
+  private static final String VERTX_SUBS_LOCKS = "__vertx:subs_locks";
 
   public SubsMapHelper(VertxInternal vertx, RedissonClient redisson, NodeSelector nodeSelector, String nodeId) {
     this.vertx = vertx;
     this.redisson = redisson;
     this.subsCache = redisson.getMapCache(VERTX_SUBS_NAME, JsonJacksonCodec.INSTANCE);
     this.subsCache.addListener(this);
+    this.republishLock = redisson.getReadWriteLock(VERTX_SUBS_LOCKS);
 
     this.nodeSelector = nodeSelector;
     this.nodeId = nodeId;
@@ -58,32 +61,43 @@ public class SubsMapHelper
   }
 
   public void updateSubsEntryExpiration(long ttl, TimeUnit ttlUnit) {
-    subsCache.expire(Duration.ofSeconds(ttl));
-    ownSubs.keySet().stream().forEach(key -> {
-      subsCache.updateEntryExpiration(key, ttl, ttlUnit, 0, TimeUnit.SECONDS);
-    });
+    Set<String> subsKeySet = subsCache.keySet();
+    if (!subsKeySet.isEmpty()) {
+      subsKeySet.stream().forEach(key -> {
+        try {
+          subsCache.updateEntryExpiration(key, ttl, ttlUnit, 0, TimeUnit.SECONDS);
+        } catch (Exception e) {
+          //e.printStackTrace();
+        }
+      });
+    }
   }
-  
+
   public void close() {
     subsCache.destroy();
   }
 
-  public void put(String address, RegistrationInfo registrationInfo, Promise<Void> promise) {
-    if (registrationInfo.localOnly()) {
-      localSubs.compute(address, (add, curr) -> addToSet(registrationInfo, curr));
-      fireRegistrationUpdateEvent(address);
-      promise.complete();
-    } else {
-      try {
-        vertx.runOnContext(aVoid -> {
-          Set<RegistrationInfo> registrationInfoSet = ownSubs.compute(address, (add, currSet) -> addToSet(registrationInfo, currSet));
-
-          subsCache.fastPut(address, registrationInfoSet, 10, TimeUnit.SECONDS);
-          promise.complete();
-        });
-      } catch (Exception e) {
-        log.error(String.format("create subs address %s failed.", address), e);
+  public void put(String address, RegistrationInfo registrationInfo) {
+    Lock writeLock = republishLock.writeLock();
+    writeLock.lock();
+    try {
+      if (registrationInfo.localOnly()) {
+        localSubs.compute(address, (add, curr) -> addToSet(registrationInfo, curr));
+        fireRegistrationUpdateEvent(address);
+      } else {
+        try {
+          Set<RegistrationInfo> remoteRegistrationInfoSet = subsCache.get(address);
+          if (remoteRegistrationInfoSet == null) {
+            remoteRegistrationInfoSet = new HashSet<>();
+          }
+          remoteRegistrationInfoSet.add(registrationInfo);
+          subsCache.fastPut(address, remoteRegistrationInfoSet, 10, TimeUnit.SECONDS);
+        } catch (Exception e) {
+          log.error(String.format("create subs address %s failed.", address), e);
+        }
       }
+    } finally {
+      writeLock.unlock();
     }
   }
 
@@ -94,56 +108,62 @@ public class SubsMapHelper
   }
 
   public List<RegistrationInfo> get(String address) {
-    Set<RegistrationInfo> remote = subsCache.get(address);
-    if (remote == null) {
-      remote = Collections.emptySet();
-    }
-
-    List<RegistrationInfo> list;
-    int                    size;
-    size = remote.size();
-    Set<RegistrationInfo> local = localSubs.get(address);
-    if (local != null) {
-      synchronized (local) {
-        size += local.size();
-        if (size == 0) {
-          return Collections.emptyList();
-        }
-        list = new ArrayList<>(size);
-        list.addAll(local);
+    Lock readLock = republishLock.readLock();
+    readLock.lock();
+    try {
+      Set<RegistrationInfo> remote = subsCache.get(address);
+      if (remote == null) {
+        remote = new HashSet<>();
       }
-    } else if (size == 0) {
-      return Collections.emptyList();
-    } else {
-      list = new ArrayList<>(size);
+
+      List<RegistrationInfo> list;
+      int                    size;
+      size = remote.size();
+      Set<RegistrationInfo> local = localSubs.get(address);
+      if (local != null) {
+        synchronized (local) {
+          size += local.size();
+          if (size == 0) {
+            return Collections.emptyList();
+          }
+          list = new ArrayList<>(size);
+          list.addAll(local);
+        }
+      } else if (size == 0) {
+        return Collections.emptyList();
+      } else {
+        list = new ArrayList<>(size);
+      }
+      for (RegistrationInfo registrationInfo : remote) {
+        list.add(registrationInfo);
+      }
+      return list;
+    } finally {
+      readLock.unlock();
     }
-    for (RegistrationInfo registrationInfo : remote) {
-      list.add(registrationInfo);
-    }
-    return list;
   }
 
-  public void remove(String address, RegistrationInfo registrationInfo, Promise<Void> promise) {
+  public void remove(String address, RegistrationInfo registrationInfo) {
+    Lock writeLock = republishLock.writeLock();
+    writeLock.lock();
     try {
       if (registrationInfo.localOnly()) {
         localSubs.computeIfPresent(address, (add, curr) -> removeFromSet(registrationInfo, curr));
         fireRegistrationUpdateEvent(address);
-        promise.complete();
       } else {
-        vertx.runOnContext(aVoid -> {
-          Set<RegistrationInfo> registrationInfoSet = ownSubs.computeIfPresent(address, (add, curr) -> removeFromSet(registrationInfo, curr));
-
-          if (registrationInfoSet == null) {
-            subsCache.remove(address);
-          } else {
-            subsCache.fastPut(address, registrationInfoSet, 10, TimeUnit.SECONDS);
-          }
-          promise.complete();
-        });
+        Set<RegistrationInfo> remoteRegistrationInfoSet = subsCache.get(address);
+        if (remoteRegistrationInfoSet == null) {
+          remoteRegistrationInfoSet = new HashSet<>();
+        }
+        remoteRegistrationInfoSet.remove(registrationInfo);
+        if (remoteRegistrationInfoSet.isEmpty()) {
+          subsCache.fastRemove(address);
+        } else {
+          subsCache.fastPut(address, remoteRegistrationInfoSet, 10, TimeUnit.SECONDS);
+        }
       }
-    } catch (Exception e) {
-      log.error(String.format("remove subs address %s failed.", address), e);
-      promise.fail(e);
+    } finally {
+      writeLock.unlock();
     }
   }
 
