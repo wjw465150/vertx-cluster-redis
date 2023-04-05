@@ -15,7 +15,7 @@ apply from: rootDir.canonicalPath + '/.gradle/publish.gradle'
 archivesBaseName = 'vertx-cluster-redis'
 
 group = "com.github.wjw465150"
-version = "4.4.1"
+version = "4.4.1.1"
 
 sourceCompatibility = '1.8'
 targetCompatibility = '1.8'
@@ -26,7 +26,10 @@ description = """Vert.x Redis Cluster Manager"""
 ext {
   vertx = [version : "4.4.1"]
   redisson = [version : "3.20.1"]
+  slf4j = [version : "1.7.32"]
+  logback = [version : "1.2.10"]
   junit = [version : "4.13.1"]
+  awaitility = [version : "1.7.0"]
 }
 
 compileJava {
@@ -173,14 +176,14 @@ dependencies {
     exclude group: 'io.netty'
     exclude group: 'org.slf4j'
   }
+  implementation "org.slf4j:slf4j-api:${slf4j.version}"
     
   provided "io.vertx:vertx-codegen"
   provided "io.vertx:vertx-docgen"
   
-  testImplementation 'org.slf4j:slf4j-api:1.7.32'
-  testImplementation 'org.slf4j:slf4j-api:1.7.32'
-  testImplementation 'ch.qos.logback:logback-core:1.2.10'
-  testImplementation 'ch.qos.logback:logback-classic:1.2.10'
+  testImplementation "org.slf4j:slf4j-api:${slf4j.version}"
+  testImplementation "ch.qos.logback:logback-core:${logback.version}"
+  testImplementation "ch.qos.logback:logback-classic:${logback.version}"
 
   testImplementation platform("io.vertx:vertx-stack-depchain:${vertx.version}")  //Vert.x Stack Depchain,集中了Vert.x的依赖版本管理,这样后面在导入Vert.x模块时就不必再填写版本号了!
   testImplementation("io.vertx:vertx-core") {
@@ -203,7 +206,7 @@ dependencies {
   testImplementation "io.vertx:vertx-service-discovery"
   testImplementation "io.vertx:vertx-service-proxy"
   testImplementation "junit:junit:${junit.version}"
-  testImplementation "com.jayway.awaitility:awaitility:1.7.0"
+  testImplementation "com.jayway.awaitility:awaitility:${awaitility.version}"
 }
 
 compileJava.dependsOn(processResources)
