@@ -74,9 +74,6 @@ java {
 publishing {
   // 定义发布什么
   publications {
-    maven(MavenPublication) {  //发布到本地仓库
-      from components.java
-    }
     mavenJava(MavenPublication) {  //发布到中央仓库
       // groupId,artifactId,version，如果不定义，则会按照默认值执行
       groupId = project.group  //Sonatype上的Issue里填写的`Group Id`,可以跟package路径完全不一样
