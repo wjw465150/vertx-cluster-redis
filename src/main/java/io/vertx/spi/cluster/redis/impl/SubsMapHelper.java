@@ -5,6 +5,7 @@
  */
 package io.vertx.spi.cluster.redis.impl;
 
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -133,9 +134,23 @@ public class SubsMapHelper {
       if (registrationInfo.localOnly()) {
         localSubs.computeIfPresent(address, (add, curr) -> removeFromSet(registrationInfo, curr));
       } else {
-        subsCache.remove(address,registrationInfo);
+        //-> @wjw_add 删除指令来的早了,节点还不存在,这时候重试几次!
+        int retryCount=0;
+        boolean isOK = subsCache.remove(address,registrationInfo);
+        while(!isOK && retryCount<3) {
+          log.warn(MessageFormat.format("要删除的Zookeeper节点不存在:{0}, 重试第:{1}次!", address, retryCount));
+          java.util.concurrent.TimeUnit.SECONDS.sleep(1);
+          retryCount++;
+          isOK = subsCache.remove(address,registrationInfo);
+        }
+        if(!isOK) {
+          log.warn(MessageFormat.format("重试几次后,要删除的Zookeeper节点还不存在:{0}", address));
+        }
+        //<- @wjw_add
       }
       nodeSelector.registrationsUpdated(new RegistrationUpdateEvent(address, this.get(address)));
+    } catch (Exception e) {
+      log.error(String.format("remove subs address %s failed.", address), e);
     } finally {
       writeLock.unlock();
     }
