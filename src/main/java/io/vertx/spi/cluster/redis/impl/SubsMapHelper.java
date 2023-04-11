@@ -40,7 +40,7 @@ public class SubsMapHelper {
   private final VertxInternal                                vertx;
   private final NodeSelector                                 nodeSelector;
   private final String                                       nodeId;
-  private final ConcurrentMap<String, Set<RegistrationInfo>> ownSubs = new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, Set<RegistrationInfo>> ownSubs   = new ConcurrentHashMap<>();
   private final ConcurrentMap<String, Set<RegistrationInfo>> localSubs = new ConcurrentHashMap<>();
 
   private static final String VERTX_SUBS_NAME = "__vertx:subs";
@@ -122,28 +122,17 @@ public class SubsMapHelper {
         promise.complete();
       } else {
         ownSubs.computeIfPresent(address, (add, curr) -> removeFromSet(registrationInfo, curr));
-        //删除指令来的早了,节点还不存在,这时候重试几次!
-        //@wjw_comment: 为何不用Watcher来监听?因为可能在创建Watcher的时候节点已经创建了,就监听不到了!
+        //删除指令来的早了,节点还不存在,这时候重试1次!
         if (!subsCache.remove(address, registrationInfo)) {
-          java.util.concurrent.atomic.AtomicInteger retryCount = new java.util.concurrent.atomic.AtomicInteger(0);
-          vertx.setPeriodic(100, 100, timerID -> {
-            try {
-              log.warn(MessageFormat.format("要删除的Redis节点不存在:{0}, 重试第:{1}次!", address, retryCount.incrementAndGet()));
-              if (subsCache.remove(address, registrationInfo)) {
-                vertx.cancelTimer(timerID);
-                log.warn(MessageFormat.format("重试第:{0}次后,成功删除Redis节点:{1}", retryCount.get(), address));
-                promise.complete();
-                return;
-              }
-
-              if (retryCount.get() > 10) {
-                vertx.cancelTimer(timerID);
-                String errMessage = MessageFormat.format("重试{0}次后,要删除的Redis节点还不存在:{1}", retryCount.get(), address);
-                log.warn(errMessage);
-                throw new IllegalStateException(errMessage);
-              }
-            } catch (Exception e) {
-              log.error(e.getMessage(), e);
+          vertx.setTimer(100, timerID -> {
+            log.warn(MessageFormat.format("要删除的Redis节点不存在:{0}, 重试1!", address));
+            if (subsCache.remove(address, registrationInfo)) {
+              log.warn(MessageFormat.format("重试1次后,成功删除Redis节点:{0}", address));
+              promise.complete();
+            } else {
+              String errMessage = MessageFormat.format("重试1次后,要删除的Redis节点还不存在:{0}", address);
+              log.warn(errMessage);
+              promise.fail(errMessage);
             }
           });
 
@@ -166,7 +155,7 @@ public class SubsMapHelper {
   private void fireRegistrationUpdateEvent(String address) {
     nodeSelector.registrationsUpdated(new RegistrationUpdateEvent(address, get(address)));
   }
-  
+
   public void syncOwnSubs2Remote() {
     log.info(String.format("vertx node %s have reconnected to Redis", nodeId));
     vertx.runOnContext(aVoid -> {

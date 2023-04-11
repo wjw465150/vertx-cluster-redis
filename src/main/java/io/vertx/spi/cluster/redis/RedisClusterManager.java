@@ -8,7 +8,6 @@ package io.vertx.spi.cluster.redis;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.text.MessageFormat;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -33,8 +32,6 @@ import org.redisson.codec.JsonJacksonCodec;
 import org.redisson.config.Config;
 import org.redisson.connection.ConnectionListener;
 
-import io.vertx.core.CompositeFuture;
-import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxException;
