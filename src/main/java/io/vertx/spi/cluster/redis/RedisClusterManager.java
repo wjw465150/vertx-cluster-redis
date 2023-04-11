@@ -6,7 +6,9 @@
 package io.vertx.spi.cluster.redis;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.text.MessageFormat;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -18,6 +20,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import org.redisson.Redisson;
+import org.redisson.api.NodeType;
 import org.redisson.api.RLock;
 import org.redisson.api.RMapCache;
 import org.redisson.api.RedissonClient;
@@ -28,7 +31,10 @@ import org.redisson.api.map.event.EntryRemovedListener;
 import org.redisson.api.map.event.EntryUpdatedListener;
 import org.redisson.codec.JsonJacksonCodec;
 import org.redisson.config.Config;
+import org.redisson.connection.ConnectionListener;
 
+import io.vertx.core.CompositeFuture;
+import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxException;
@@ -50,7 +56,6 @@ import io.vertx.spi.cluster.redis.impl.RedisCounter;
 import io.vertx.spi.cluster.redis.impl.RedisLock;
 import io.vertx.spi.cluster.redis.impl.RedisSyncMap;
 import io.vertx.spi.cluster.redis.impl.SubsMapHelper;
-import io.vertx.spi.cluster.redis.impl.SubsOpSerializer;
 
 public class RedisClusterManager implements ClusterManager, EntryCreatedListener<String, NodeInfo>, EntryUpdatedListener<String, NodeInfo>, EntryExpiredListener<String, NodeInfo>, EntryRemovedListener<String, NodeInfo> {
   private static final Logger log = LoggerFactory.getLogger(RedisClusterManager.class);
@@ -61,12 +66,14 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
   private NodeListener                nodeListener;
   private RMapCache<String, NodeInfo> clusterNodes;
   private volatile boolean            active;
+  private volatile boolean            joined;
 
-  private String         nodeId;
-  private NodeInfo       nodeInfo;
-  private RedissonClient redisson;
-  private boolean        customRedisCluster;
-  private SubsMapHelper  subsMapHelper;
+  private String                      nodeId;
+  private NodeInfo                    nodeInfo;
+  private RedissonClient              redisson;
+  private boolean                     customRedisCluster;
+  private SubsMapHelper               subsMapHelper;
+  private final Map<String, NodeInfo> localNodeInfo = new ConcurrentHashMap<>();
 
   //目的是缓存已经创建的RedisLock,RedisCounter,AsyncMap,syncMapCache 为了提高速度
   private final Map<String, RedisLock>          locksCache    = new ConcurrentHashMap<>();
@@ -85,6 +92,8 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
 
   private static final int               ENTRY_TTL         = 10;
   private final ScheduledExecutorService nodesTtlScheduler = Executors.newScheduledThreadPool(1);
+
+  private int redisConnectionListenerId;
 
   /**
    * Constructor - gets config from classpath
@@ -202,10 +211,11 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
     synchronized (this) {
       this.nodeInfo = nodeInfo;
     }
-    vertx.executeBlocking(prom -> {
+    vertx.runOnContext(Avoid -> {
       clusterNodes.fastPut(nodeId, nodeInfo);
-      prom.complete();
-    }, false, promise);
+      localNodeInfo.put(nodeId, nodeInfo);
+      promise.complete();
+    });
   }
 
   @Override
@@ -215,7 +225,7 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
 
   @Override
   public void getNodeInfo(String nodeId, Promise<NodeInfo> promise) {
-    vertx.executeBlocking(prom -> {
+    vertx.<NodeInfo> executeBlocking(prom -> {
       NodeInfo remoteNodeInfo = clusterNodes.get(nodeId);
       if (remoteNodeInfo != null) {
         prom.complete(remoteNodeInfo);
@@ -229,21 +239,25 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
     clusterNodes = redisson.getMapCache(VERTX_CLUSTER_NODES, JsonJacksonCodec.INSTANCE);
     clusterNodes.addListener(this);
     try {
-      if (nodeInfo != null) {
-        clusterNodes.fastPut(nodeId, nodeInfo);
-      }
+      //Join to the cluster
+      createThisNode();
+      joined = true;
       subsMapHelper = new SubsMapHelper(vertx, redisson, nodeSelector, nodeId);
+      redisConnectionListenerId = ((Redisson) this.redisson).getServiceManager().getConnectionEventsHub().addListener(new RedisConnectionListener(this));
 
       nodesTtlScheduler.scheduleAtFixedRate(() -> {
-        if (nodeId != null) {
+        if (joined && nodeId != null) {
           try {
             clusterNodes.updateEntryExpiration(nodeId, ENTRY_TTL, TimeUnit.SECONDS, 0, TimeUnit.SECONDS);
           } catch (Exception e) {
           }
         }
 
-        if (subsMapHelper != null) {
-          subsMapHelper.updateSubsEntryExpiration(ENTRY_TTL, TimeUnit.SECONDS);
+        if (joined && subsMapHelper != null) {
+          try {
+            subsMapHelper.updateSubsEntryExpiration(ENTRY_TTL, TimeUnit.SECONDS);
+          } catch (Exception e) {
+          }
         }
       }, 500, 500, TimeUnit.MILLISECONDS);
     } catch (Exception e) {
@@ -251,37 +265,51 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
     }
   }
 
+  private void createThisNode() {
+    if (nodeInfo != null) {
+      clusterNodes.fastPut(nodeId, nodeInfo);
+    }
+  }
+
   @Override
   public void join(Promise<Void> promise) {
     vertx.executeBlocking(prom -> {
-      if (!active) {
-        active = true;
+      synchronized (RedisClusterManager.this) {
+        if (!active) {
+          active = true;
 
-        //The redis instance has been passed using the constructor.
-        if (customRedisCluster) {
+          //The redis instance has been passed using the constructor.
+          if (customRedisCluster) {
+            try {
+              if(nodeId != null) {
+                redisson.getMapCache(VERTX_CLUSTER_NODES, JsonJacksonCodec.INSTANCE).remove(nodeId);  //移除以前残留的
+              }
+              addLocalNodeId();
+              prom.complete();
+            } catch (VertxException e) {
+              prom.fail(e);
+            }
+            return;
+          }
+
           try {
+            if (this.redisson == null) {
+              Config config = Config.fromJSON(conf.encode());
+              this.redisson = Redisson.create(config);
+              if(nodeId != null) {
+                redisson.getMapCache(VERTX_CLUSTER_NODES, JsonJacksonCodec.INSTANCE).remove(nodeId);  //移除以前残留的
+              }
+            }
+
+            nodeId = UUID.randomUUID().toString();
             addLocalNodeId();
             prom.complete();
-          } catch (VertxException e) {
+          } catch (Exception e) {
             prom.fail(e);
           }
-          return;
-        }
-
-        try {
-          if (this.redisson == null) {
-            Config config = Config.fromJSON(conf.encode());
-            this.redisson = Redisson.create(config);
-          }
-
-          nodeId = UUID.randomUUID().toString();
-          addLocalNodeId();
+        } else {
           prom.complete();
-        } catch (Exception e) {
-          prom.fail(e);
         }
-      } else {
-        prom.complete();
       }
     }, promise);
   }
@@ -294,12 +322,14 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
       synchronized (RedisClusterManager.this) {
         if (active) {
           active = false;
+          joined = false;
           nodesTtlScheduler.shutdown();
 
           try {
             clusterNodes.remove(nodeId);
             subsMapHelper.close();
             subsMapHelper = null;
+            ((Redisson) this.redisson).getServiceManager().getConnectionEventsHub().removeListener(redisConnectionListenerId);
             if (!customRedisCluster) {
               redisson.shutdown();
               redisson = null;
@@ -323,19 +353,17 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
 
   @Override
   public void addRegistration(String address, RegistrationInfo registrationInfo, Promise<Void> promise) {
-    SubsOpSerializer serializer = SubsOpSerializer.get(vertx.getOrCreateContext());
-    serializer.execute(subsMapHelper::put, address, registrationInfo, promise);
+    subsMapHelper.put(address, registrationInfo, promise);
   }
 
   @Override
   public void removeRegistration(String address, RegistrationInfo registrationInfo, Promise<Void> promise) {
-    SubsOpSerializer serializer = SubsOpSerializer.get(vertx.getOrCreateContext());
-    serializer.execute(subsMapHelper::remove, address, registrationInfo, promise);
+    subsMapHelper.remove(address, registrationInfo, promise);
   }
 
   @Override
   public void getRegistrations(String address, Promise<List<RegistrationInfo>> promise) {
-    vertx.executeBlocking(prom -> {
+    vertx.<List<RegistrationInfo>> executeBlocking(prom -> {
       prom.complete(subsMapHelper.get(address));
     }, false, promise);
   }
@@ -382,6 +410,40 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
   public void onUpdated(EntryEvent<String, NodeInfo> event) {
     if (!active)
       return;
+  }
+
+  private final class RedisConnectionListener implements ConnectionListener {
+    private RedisClusterManager redisClusterManager;
+
+    public RedisConnectionListener(RedisClusterManager redisClusterManager) {
+      this.redisClusterManager = redisClusterManager;
+    }
+
+    @Override
+    public void onConnect(InetSocketAddress addr, NodeType nodeType) {
+      Promise<Void> promise = Promise.promise();
+      redisClusterManager.join(promise);
+      promise.future().onComplete(vVoid -> {
+        subsMapHelper.syncOwnSubs2Remote();
+      });
+    }
+
+    @Override
+    public void onDisconnect(InetSocketAddress addr, NodeType nodeType) {
+      Promise<Void> promise = Promise.promise();
+      redisClusterManager.leave(promise);
+      promise.future().onComplete(vVoid -> {
+        redisson = null;
+      });
+    }
+
+    @Override
+    public void onConnect(InetSocketAddress addr) {
+    }
+
+    @Override
+    public void onDisconnect(InetSocketAddress addr) {
+    }
   }
 
 }
