@@ -20,6 +20,7 @@ import java.util.stream.Collectors;
 
 import org.redisson.Redisson;
 import org.redisson.api.NodeType;
+import org.redisson.api.NodesGroup;
 import org.redisson.api.RLock;
 import org.redisson.api.RMapCache;
 import org.redisson.api.RedissonClient;
@@ -54,7 +55,7 @@ import io.vertx.spi.cluster.redis.impl.RedisLock;
 import io.vertx.spi.cluster.redis.impl.RedisSyncMap;
 import io.vertx.spi.cluster.redis.impl.SubsMapHelper;
 
-public class RedisClusterManager implements ClusterManager, EntryCreatedListener<String, NodeInfo>, EntryUpdatedListener<String, NodeInfo>, EntryExpiredListener<String, NodeInfo>, EntryRemovedListener<String, NodeInfo> {
+public class RedisClusterManager implements ClusterManager, ConnectionListener, EntryCreatedListener<String, NodeInfo>, EntryUpdatedListener<String, NodeInfo>, EntryExpiredListener<String, NodeInfo>, EntryRemovedListener<String, NodeInfo> {
   private static final Logger log = LoggerFactory.getLogger(RedisClusterManager.class);
 
   private VertxInternal vertx;
@@ -240,7 +241,8 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
       createThisNode();
       joined = true;
       subsMapHelper = new SubsMapHelper(vertx, redisson, nodeSelector, nodeId);
-      redisConnectionListenerId = ((Redisson) this.redisson).getServiceManager().getConnectionEventsHub().addListener(new RedisConnectionListener(this));
+      
+      redisConnectionListenerId = redisson.getNodesGroup().addConnectionListener(this);
 
       nodesTtlScheduler.scheduleAtFixedRate(() -> {
         if (joined && nodeId != null) {
@@ -326,7 +328,8 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
             clusterNodes.remove(nodeId);
             subsMapHelper.close();
             subsMapHelper = null;
-            ((Redisson) this.redisson).getServiceManager().getConnectionEventsHub().removeListener(redisConnectionListenerId);
+            
+            redisson.getNodesGroup().removeConnectionListener(redisConnectionListenerId);
             if (!customRedisCluster) {
               redisson.shutdown();
               redisson = null;
@@ -409,38 +412,24 @@ public class RedisClusterManager implements ClusterManager, EntryCreatedListener
       return;
   }
 
-  private final class RedisConnectionListener implements ConnectionListener {
-    private RedisClusterManager redisClusterManager;
+  //连接上 redis server
+  @Override
+  public void onConnect(InetSocketAddress addr) {
+    Promise<Void> promise = Promise.promise();
+    this.join(promise);
+    promise.future().onComplete(vVoid -> {
+      subsMapHelper.syncOwnSubs2Remote();
+    });
+  }
 
-    public RedisConnectionListener(RedisClusterManager redisClusterManager) {
-      this.redisClusterManager = redisClusterManager;
-    }
-
-    @Override
-    public void onConnect(InetSocketAddress addr, NodeType nodeType) {
-      Promise<Void> promise = Promise.promise();
-      redisClusterManager.join(promise);
-      promise.future().onComplete(vVoid -> {
-        subsMapHelper.syncOwnSubs2Remote();
-      });
-    }
-
-    @Override
-    public void onDisconnect(InetSocketAddress addr, NodeType nodeType) {
-      Promise<Void> promise = Promise.promise();
-      redisClusterManager.leave(promise);
-      promise.future().onComplete(vVoid -> {
-        redisson = null;
-      });
-    }
-
-    @Override
-    public void onConnect(InetSocketAddress addr) {
-    }
-
-    @Override
-    public void onDisconnect(InetSocketAddress addr) {
-    }
+  //断开连接 redis server
+  @Override
+  public void onDisconnect(InetSocketAddress addr) {
+    Promise<Void> promise = Promise.promise();
+    this.leave(promise);
+    promise.future().onComplete(vVoid -> {
+      redisson = null;
+    });
   }
 
 }
