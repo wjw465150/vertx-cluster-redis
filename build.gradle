@@ -24,7 +24,7 @@ targetCompatibility = '1.8'
 description = """Vert.x Redis Cluster Manager"""
 
 ext {
-  vertx = [version : "4.4.4"]
+  vertx = [version : "4.4.6"]
   redisson = [version : "3.22.1"]
   slf4j = [version : "1.7.32"]
   logback = [version : "1.2.10"]
